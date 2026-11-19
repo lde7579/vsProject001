@@ -69,3 +69,28 @@ def test_build_inputs_fcst_only_sku_and_order():
     assert [i.sku for i in inputs] == ['M', 'S', 'F']
     assert inputs[0].fcst13 == [2, 3] and inputs[0].onhand == 9.0 and inputs[0].correction == 1.2
     assert inputs[2].fcst13 == [1, 0] and inputs[2].in_master is False
+
+
+def test_z_none_when_demand_none():
+    inp = SkuInputs(sku='X', group=None, name=None, grade='B', weight_actual=0.7, weight_fcst=0.3,
+                    lead_time_days=14, current_ss_days=None, correction=None, onhand=1,
+                    actual_hist=[1, 2], fcst13=[1.0] * 13)
+    r = compute_sku(inp)
+    assert r.bases['실적기준'].z is None and r.bases['FCST기준'].z is None
+    assert r.bases['가중평균'].z == 1.282
+
+
+def test_negative_lead_time_does_not_raise():
+    inp = SkuInputs(sku='X', group=None, name=None, grade='B', weight_actual=0.7, weight_fcst=0.3,
+                    lead_time_days=-7, current_ss_days=None, correction=1.0, onhand=1,
+                    actual_hist=[1, 2], fcst13=[1.0] * 13)
+    r = compute_sku(inp)
+    assert r.bases['가중평균'].lt_weeks is None and r.bases['가중평균'].rop is None
+    assert '리드타임없음' in r.memo
+
+
+def test_fcst_none_cells_count_as_zero():
+    inp = SkuInputs(sku='X', group=None, name=None, grade='B', weight_actual=0.0, weight_fcst=1.0,
+                    lead_time_days=7, current_ss_days=None, correction=1.0, onhand=1,
+                    actual_hist=[1], fcst13=[10.0, None])
+    assert compute_sku(inp).fcst_mean == 5.0

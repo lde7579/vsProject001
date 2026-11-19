@@ -61,12 +61,12 @@ class SkuResult:
 
 def compute_basis(demand_week, sigma_week, lead_time_days, grade, onhand) -> BasisResult:
     """주간 수요·표준편차로 LT 수요, 안전재고, ROP, 일수를 계산한다(반올림 없음)."""
-    z = z_for_grade(grade)
     if demand_week is None:
-        return BasisResult(None, None, None, None, None, z, None, None, None, None, None, None)
+        return BasisResult(None, None, None, None, None, None, None, None, None, None, None, None)
+    z = z_for_grade(grade)
 
     lt_weeks = lt_demand = lt_sigma = None
-    if lead_time_days:  # None 또는 0이면 LT 관련 값은 모두 None
+    if lead_time_days is not None and lead_time_days > 0:  # 없음·0·음수면 LT 관련 값은 모두 None
         lt_weeks = lead_time_days / 7
         lt_demand = demand_week * lt_weeks
         if sigma_week is not None:
@@ -105,7 +105,8 @@ def _mean_std(values) -> tuple[float, float]:
 def compute_sku(inp: SkuInputs) -> SkuResult:
     """SKU 하나의 세 기준 결과와 점검메모."""
     hm, hs = _mean_std(inp.actual_hist)
-    fm, fs = _mean_std(inp.fcst13)
+    # FCST는 빈 칸을 0으로 보고 주 수 전체로 평균·표준편차를 구한다
+    fm, fs = _mean_std([0.0 if v is None else v for v in inp.fcst13] if inp.fcst13 else None)
     wh, wf, k = inp.weight_actual, inp.weight_fcst, inp.correction
 
     if wh is not None and wf is not None:
@@ -135,7 +136,7 @@ def compute_sku(inp: SkuInputs) -> SkuResult:
         memo.append('FCST없음')
     if wh is None or wf is None or abs(wh + wf - 1) > 1e-9:
         memo.append('가중치합오류')
-    if not inp.lead_time_days:
+    if inp.lead_time_days is None or inp.lead_time_days <= 0:
         memo.append('리드타임없음')
     if k is None:
         memo.append('보정계수없음')
