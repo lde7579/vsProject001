@@ -3,6 +3,8 @@ import statistics
 
 from pytest import approx
 
+from safety_stock.inventory_days.validate import validate
+
 from safety_stock.inventory_days.calc import (
     CalcSettings,
     SkuInputs,
@@ -94,3 +96,39 @@ def test_fcst_none_cells_count_as_zero():
                     lead_time_days=7, current_ss_days=None, correction=1.0, onhand=1,
                     actual_hist=[1], fcst13=[10.0, None])
     assert compute_sku(inp).fcst_mean == 5.0
+
+
+def _inp(**kw):
+    base = dict(sku='X', group='G', name='n', grade='B', weight_actual=0.7, weight_fcst=0.3,
+                lead_time_days=14, current_ss_days=30, correction=1.0, onhand=50,
+                actual_hist=[10.0, 20.0], fcst13=[12.0] * 13)
+    base.update(kw)
+    return SkuInputs(**base)
+
+
+def test_weight_none_memo_differs_from_sum_error():
+    assert '가중치없음' in compute_sku(_inp(weight_fcst=None)).memo
+    assert '가중치합오류' not in compute_sku(_inp(weight_fcst=None)).memo
+    assert '가중치합오류' in compute_sku(_inp(weight_actual=0.6)).memo
+    assert '가중치없음' not in compute_sku(_inp(weight_actual=0.6)).memo
+
+
+def test_abnormal_correction_memo_keeps_calculation():
+    r = compute_sku(_inp(correction=29.82))
+    assert '보정계수이상' in r.memo
+    assert r.bases['실적기준'].demand_week == approx(15 * 29.82)  # 계산은 그대로
+    assert '보정계수이상' in compute_sku(_inp(correction=0.0)).memo
+    assert '보정계수이상' not in compute_sku(_inp(correction=3.0)).memo
+    assert '보정계수이상' not in compute_sku(_inp(correction=None)).memo
+
+
+def test_all_blank_actual_rows_count_as_no_actual():
+    # 출고 시트에 SKU 행은 있지만 실적 주차가 전부 빈 칸이면 실적없음
+    r = compute_sku(_inp(actual_hist=[None, None]))
+    assert '실적없음' in r.memo and r.actual_mean is None
+    assert r.bases['가중평균'].demand_week == approx(0.3 * 12)  # 계산은 기존대로(실적 0)
+    # Task 7 규칙: 실적없음이면 기존수기·가중평균·실적기준은 채점 제외, FCST기준은 채점
+    [row] = validate([r], WeeklySales([35], {'X': [10.0]}), range(35, 36))
+    for b in ('기존수기', '가중평균', '실적기준'):
+        assert row.checks[b].excluded == '실적없음' and row.checks[b].error_week is None
+    assert row.checks['FCST기준'].excluded is None and row.checks['FCST기준'].error_week is not None

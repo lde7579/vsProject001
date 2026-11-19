@@ -102,9 +102,15 @@ def _mean_std(values) -> tuple[float, float]:
     return statistics.fmean(vals), statistics.pstdev(vals)
 
 
+# 보정계수가 이 값보다 크거나 0이면 점검메모 '보정계수이상'(계산은 그대로)
+CORRECTION_MAX = 3.0
+
+
 def compute_sku(inp: SkuInputs) -> SkuResult:
     """SKU 하나의 세 기준 결과와 점검메모."""
     hm, hs = _mean_std(inp.actual_hist)
+    # 출고 시트에 행이 없거나, 행은 있어도 실적 주차 값이 모두 빈 칸이면 실적이 없는 것으로 본다
+    has_actual = inp.actual_hist is not None and any(v is not None for v in inp.actual_hist)
     # FCST는 빈 칸을 0으로 보고 주 수 전체로 평균·표준편차를 구한다
     fm, fs = _mean_std([0.0 if v is None else v for v in inp.fcst13] if inp.fcst13 else None)
     wh, wf, k = inp.weight_actual, inp.weight_fcst, inp.correction
@@ -130,20 +136,24 @@ def compute_sku(inp: SkuInputs) -> SkuResult:
         memo.append('등급없음')
     if weighted[0] == 0:
         memo.append('수요없음')
-    if inp.actual_hist is None:
+    if not has_actual:
         memo.append('실적없음')
     if inp.fcst13 is None:
         memo.append('FCST없음')
-    if wh is None or wf is None or abs(wh + wf - 1) > 1e-9:
+    if wh is None or wf is None:
+        memo.append('가중치없음')
+    elif abs(wh + wf - 1) > 1e-9:
         memo.append('가중치합오류')
     if inp.lead_time_days is None or inp.lead_time_days <= 0:
         memo.append('리드타임없음')
     if k is None:
         memo.append('보정계수없음')
+    elif k == 0 or k > CORRECTION_MAX:
+        memo.append('보정계수이상')
 
     return SkuResult(
         inputs=inp,
-        actual_mean=hm if inp.actual_hist is not None else None,
+        actual_mean=hm if has_actual else None,
         fcst_mean=fm if inp.fcst13 is not None else None,
         bases=bases,
         memo=memo,

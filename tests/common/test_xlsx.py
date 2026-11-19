@@ -21,6 +21,11 @@ def test_to_number_converts_display_strings():
         assert to_number(v) is None
 
 
+def test_to_number_rejects_non_finite():
+    for v in ['nan', 'NaN', 'inf', '-inf', 'Infinity', float('nan'), float('inf'), float('-inf')]:
+        assert to_number(v) is None, v
+
+
 def test_norm_sku_and_header():
     assert norm_sku(' acl131t0cjdg ') == 'ACL131T0CJDG'
     assert norm_sku('') is None and norm_sku(None) is None

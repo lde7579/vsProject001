@@ -1,4 +1,5 @@
 """요청자 엑셀을 읽을 때 공통으로 쓰는 유틸."""
+import math
 import re
 
 
@@ -22,11 +23,11 @@ def norm_header(v) -> str:
 
 
 def to_number(v) -> float | None:
-    """표시용 값을 숫자로 바꾼다. 숫자로 볼 수 없으면 None."""
+    """표시용 값을 숫자로 바꾼다. 숫자로 볼 수 없거나 유한하지 않으면(nan·inf) None."""
     if isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return float(v)
+        return float(v) if math.isfinite(v) else None
     if not isinstance(v, str):
         return None
     s = v.strip().replace(',', '')
@@ -42,6 +43,8 @@ def to_number(v) -> float | None:
     try:
         n = float(s)
     except ValueError:
+        return None
+    if not math.isfinite(n):
         return None
     if percent:
         n /= 100
