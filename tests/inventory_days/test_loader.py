@@ -55,3 +55,10 @@ def test_load_summary_text_values_and_missing_columns(make_wb):
         ['A1', '#DIV/0!', '(13)']]})
     row = load_summary(wb, 'Summary_FCST')['A1']
     assert row['demand'] is None and row['target_days'] == -13 and row['grade'] is None
+
+
+def test_load_summary_required_column_missing_raises(make_wb):
+    wb = make_wb({'Summary_FCST기준': [['SKU', '현재고'], ['A1', 5]]})
+    with pytest.raises(InputError, match='적정재고일수'):
+        load_summary(wb, 'Summary_FCST', required=('target_days',))
+    assert load_summary(wb, 'Summary_FCST')['A1']['onhand'] == 5

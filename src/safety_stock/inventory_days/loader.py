@@ -73,7 +73,7 @@ def load_onhand(wb) -> dict[str, float]:
     )
     if ws is None:
         raise InputError(
-            "현재고 시트를 찾을 수 없습니다(이름에 '현재고', 'Summary 제외). "
+            "현재고 시트를 찾을 수 없습니다(이름에 '현재고' 포함, 'Summary' 제외). "
             f"있는 시트: {', '.join(wb.sheetnames)}"
         )
     title_row = find_header_row(ws, '품목 ID')
@@ -90,8 +90,13 @@ def load_onhand(wb) -> dict[str, float]:
     return result
 
 
-def load_summary(wb, sheet_keyword: str) -> dict[str, dict[str, float | str | None]]:
-    """Summary 시트를 SKU -> {표준 키: 값}으로 읽는다. 없는 열의 값은 None."""
+def load_summary(
+    wb, sheet_keyword: str, required: tuple[str, ...] = ()
+) -> dict[str, dict[str, float | str | None]]:
+    """Summary 시트를 SKU -> {표준 키: 값}으로 읽는다.
+
+    required에 든 표준 키(demand 포함)의 열이 없으면 InputError, 그 외 없는 열의 값은 None.
+    """
     ws = find_sheet(wb, sheet_keyword)
     title_row = find_header_row(ws, 'SKU')
     hmap = header_map(ws, title_row)
@@ -104,6 +109,12 @@ def load_summary(wb, sheet_keyword: str) -> dict[str, dict[str, float | str | No
     cols['demand'] = next(
         (c for k, c in hmap.items() if '평균수요' in k and not k.startswith('LT')), None
     )
+
+    missing = [
+        SUMMARY_FIELDS.get(k, '평균수요') for k in required if cols.get(k) is None
+    ]
+    if missing:
+        raise InputError(f"시트 '{ws.title}'에 열이 없습니다: {', '.join(missing)}")
 
     result: dict[str, dict[str, float | str | None]] = {}
     for row in ws.iter_rows(min_row=title_row + 1):
