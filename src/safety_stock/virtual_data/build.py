@@ -6,15 +6,14 @@ import statistics
 from dataclasses import dataclass
 from pathlib import Path
 
-import openpyxl
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from safety_stock.common.xlsx import InputError, find_header_row, find_sheet, norm_sku, to_number
-from safety_stock.inventory_days.calc import CalcSettings, build_inputs, compute_sku
+from safety_stock.common.xlsx import InputError, find_header_row, find_sheet, norm_sku, open_workbook, to_number
+from safety_stock.inventory_days.base import load_base
+from safety_stock.inventory_days.calc import CalcSettings
 from safety_stock.inventory_days.compare import compare_with_excel
-from safety_stock.inventory_days.loader import load_onhand, load_sales, load_summary, summary_columns
-from safety_stock.mp_simulation.loader import load_weekly_plan
+from safety_stock.inventory_days.loader import summary_columns
 from safety_stock.purchase_master.grade import GradeResult, compute_grades, turnover
 from safety_stock.purchase_master.loader import load_purchase_master, master_columns
 from safety_stock.purchase_master.model import Z_BY_GRADE, PurchaseMasterRow, normalize_grade
@@ -38,11 +37,7 @@ class Change:
     old: object
     new: object
     reason: str
-
-    @property
-    def kind(self) -> str:
-        """'변경'(칸 값을 바꿈) 또는 '기록만'(채우지 못해 사유만 남김, new=None)."""
-        return KIND_RECORD_ONLY if self.new is None else KIND_CHANGED
+    kind: str  # KIND_CHANGED(칸 값을 바꿈) | KIND_RECORD_ONLY(채우지 못해 사유만 남김, new=None)
 
 
 def _median_turnover(rows: list[PurchaseMasterRow]) -> float | None:
@@ -77,7 +72,7 @@ def _check_source(wb, src: Path, out: Path) -> None:
 def _set(ws, row: int, col: int, new, reason: str, changes: list[Change]) -> None:
     """칸 값을 바꾸고 내역에 남긴다."""
     cell = ws.cell(row=row, column=col)
-    changes.append(Change(ws.title, f'{get_column_letter(col)}{row}', cell.value, new, reason))
+    changes.append(Change(ws.title, f'{get_column_letter(col)}{row}', cell.value, new, reason, KIND_CHANGED))
     cell.value = new
 
 
@@ -162,7 +157,8 @@ def _fix_summaries(wb, results, compare_rows, grades: dict[str, GradeResult], ch
             _set(ws, row, col, cr.calc, f'산식 결과로 교체(원래 {cr.status})', changes)
         elif cr.status == '계산값없음':
             changes.append(Change(ws.title, f'{get_column_letter(col)}{row}', ws.cell(row=row, column=col).value,
-                                  None, f'산식으로 채울 수 없음({memo.get(cr.sku, "")})'))
+                                  None, f'산식으로 채울 수 없음({memo.get(cr.sku, "")})',
+                                  KIND_RECORD_ONLY))
     for ws, cols, rows in layouts.values():
         for sku, row in rows.items():
             grade = grades[sku].grade if sku in grades else None
@@ -189,12 +185,7 @@ def _write_log(wb, changes: list[Change]) -> None:
 def build_virtual(src: Path, out: Path, settings: CalcSettings = CalcSettings()) -> list[Change]:
     """보완본 src를 읽어 산식과 맞는 가상 보완본을 out에 저장하고 바꾼 칸 목록을 돌려준다."""
     src, out = Path(src), Path(out)
-    try:
-        wb = openpyxl.load_workbook(src)
-    except FileNotFoundError:
-        raise InputError(f'파일을 찾을 수 없습니다: {src}') from None
-    except Exception as e:  # 손상됐거나 xlsx가 아닌 파일
-        raise InputError(f'엑셀 파일을 열 수 없습니다: {src} ({e})') from e
+    wb = open_workbook(src, data_only=False)
     _check_source(wb, src, out)
     changes: list[Change] = []
 
@@ -202,19 +193,13 @@ def build_virtual(src: Path, out: Path, settings: CalcSettings = CalcSettings())
     before = compute_grades(before_rows)  # 재고를 채우기 전 계산 등급(순위 모집단 변경 구분용)
     filled = _fill_stock(wb, before_rows, changes)
 
-    pm = load_purchase_master(wb)  # 재고를 채운 값으로 다시 읽기
+    base_data = load_base(wb)  # 재고를 채운 값으로 다시 읽기
+    pm, grades = base_data.pm, base_data.grades
     rows = list(pm.values())
-    grades = compute_grades(rows)
     _write_grades(wb, rows, grades, before, filled, changes)
 
-    weighted = load_summary(wb, 'Summary_가중평균', required=('correction',))
-    summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),
-                 'FCST기준': load_summary(wb, 'Summary_FCST')}
-    corrections = {sku: r.get('correction') for sku, r in weighted.items()}
-    inputs = build_inputs(pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST'), load_onhand(wb), corrections,
-                          settings, grades={s: g.grade for s, g in grades.items()})
-    results = [compute_sku(i) for i in inputs]
-    _fix_summaries(wb, results, compare_with_excel(results, summaries), grades, changes)
+    results = base_data.results(settings)
+    _fix_summaries(wb, results, compare_with_excel(results, base_data.summaries), grades, changes)
 
     _write_log(wb, changes)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -6,10 +6,9 @@ import pytest
 
 from safety_stock.inventory_days.calc import CalcSettings, build_inputs, compute_sku
 from safety_stock.inventory_days.compare import compare_with_excel, sku_verdicts
-from safety_stock.inventory_days.loader import load_onhand, load_sales, load_summary
+from safety_stock.inventory_days.base import load_base
+from safety_stock.inventory_days.loader import load_sales
 from safety_stock.inventory_days.validate import VALIDATION_BASES, summarize, validate
-from safety_stock.mp_simulation.loader import load_weekly_plan
-from safety_stock.purchase_master.loader import load_purchase_master
 from safety_stock.purchase_master.grade import compute_grades, grade_verdict
 from safety_stock.virtual_data.build import build_virtual
 
@@ -44,23 +43,16 @@ class RealRun:
     def __init__(self):
         wb = openpyxl.load_workbook(BASE, data_only=True)
         actual_wb = openpyxl.load_workbook(ACTUAL, data_only=True)
-        weighted = load_summary(wb, 'Summary_가중평균', required=('correction',))
-        corrections = {s: r.get('correction') for s, r in weighted.items()}
-        summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),
-                     'FCST기준': load_summary(wb, 'Summary_FCST')}
-        pm = load_purchase_master(wb)
-        grades = {s: g.grade for s, g in compute_grades(list(pm.values())).items()}
-        inputs = build_inputs(pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST'),
-                              load_onhand(wb), corrections, CalcSettings(), grades=grades)
-        self.results = [compute_sku(i) for i in inputs]
-        self.rows = compare_with_excel(self.results, summaries)
+        base = load_base(wb)  # 통합문서는 한 번만 읽는다
+        self.results = base.results(CalcSettings())
+        self.rows = compare_with_excel(self.results, base.summaries)
         self.verdicts = sku_verdicts(self.rows)
         # 산식 재현 여부는 계산값끼리 본다: 입력값인 현재고 대조를 뺀 판정
         self.formula_verdicts = sku_verdicts([r for r in self.rows if r.field != 'onhand'])
         self.actual_sales = load_sales(actual_wb)
-        self.pm, self.sales, self.fcst = pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST')
-        self.onhand, self.corrections = load_onhand(wb), corrections
-        self.validation = validate(self.results, load_sales(actual_wb), range(35, 44))
+        self.pm, self.sales, self.fcst = base.pm, base.sales, base.fcst
+        self.onhand, self.corrections = base.onhand, base.corrections
+        self.validation = validate(self.results, self.actual_sales, range(35, 44))
         self.metrics = summarize(self.validation)
 
     def _demand_rows(self, basis):
@@ -141,8 +133,8 @@ def test_abnormal_correction_flagged(real_run):
 def real_grades():
     if not BASE.exists():
         pytest.skip('실데이터 파일이 없다')
-    rows = list(load_purchase_master(openpyxl.load_workbook(BASE, data_only=True)).values())
-    return rows, compute_grades(rows)
+    base = load_base(openpyxl.load_workbook(BASE, data_only=True))
+    return list(base.pm.values()), base.grades
 
 
 def test_grades_match_excel_all_rows(real_grades):
@@ -172,18 +164,10 @@ def test_virtual_supplement_real(tmp_path):
     changes = build_virtual(SUPPLEMENT, out)
     assert any(c.reason.startswith('회전율 분모 0') for c in changes)
     wb = openpyxl.load_workbook(out, data_only=True)
-    pm = load_purchase_master(wb)
-    grade_results = compute_grades(list(pm.values()))
-    assert len(pm) == 116
-    assert {grade_verdict(r, grade_results[r.sku]) for r in pm.values()} == {'일치'}
-    weighted = load_summary(wb, 'Summary_가중평균', required=('correction',))
-    summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),
-                 'FCST기준': load_summary(wb, 'Summary_FCST')}
-    corrections = {s: r.get('correction') for s, r in weighted.items()}
-    grades = {s: g.grade for s, g in grade_results.items()}
-    inputs = build_inputs(pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST'), load_onhand(wb),
-                          corrections, CalcSettings(), grades=grades)
-    rows = compare_with_excel([compute_sku(i) for i in inputs], summaries)
+    base = load_base(wb)
+    assert len(base.pm) == 116
+    assert {grade_verdict(r, base.grades[r.sku]) for r in base.pm.values()} == {'일치'}
+    rows = compare_with_excel(base.results(CalcSettings()), base.summaries)
     # 수요 0인 SKU는 일수 계산식이 0으로 나눠져 계산·엑셀 모두 빈 칸(엑셀값없음, 채울 값 자체가 없다)
     assert {r.status for r in rows} <= {'일치', '계산값없음', '엑셀값없음'}
     assert all(r.calc is None and r.field in ('target_days', 'ss_days') for r in rows if r.status == '엑셀값없음')

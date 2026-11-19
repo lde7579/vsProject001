@@ -5,8 +5,8 @@ from safety_stock.purchase_master.loader import load_purchase_master, master_col
 from safety_stock.purchase_master.model import z_for_grade
 
 HEAD = ['품목그룹', 'SKU', '품목명', '리드타임(일)', '안전재고 값', '재고등급', '실적 가중치', 'FCST 가중치',
-        '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈']
-X = [1000, 10, 20, 5, 'B', 'C']  # HEAD 뒤쪽 등급 입력 열 값
+        '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈', '리드타임', '품질이슈']
+X = [1000, 10, 20, 5, 'B', 'C', 3, 3]  # HEAD 뒤쪽 등급 입력 열 값
 
 
 def test_load_purchase_master_reads_rows(make_wb):
@@ -72,3 +72,11 @@ def test_missing_grade_input_column_raises(make_wb):
     head = [h for h in FULL_HEAD if h != '품질이슈']
     with pytest.raises(InputError, match='품질이슈'):
         load_purchase_master(make_wb({'W30 구매마스터': [head]}))
+
+
+def test_missing_grade_block_raises(make_wb):
+    # 점수 열(두 번째 리드타임·품질이슈)이 없으면 첫 번째가 점수 열로 오인될 수 있어 거부한다
+    head = HEAD[:-2]
+    row = ['ACL', 'A1', 'x', 100, 45, 'C', 0.7, 0.3, 1000, 10, 20, 5, 'B', 'C']
+    with pytest.raises(InputError, match='등급 열.*점수 열'):
+        load_purchase_master(make_wb({'W30 구매마스터': [head, row]}))

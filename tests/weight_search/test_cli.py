@@ -1,8 +1,7 @@
 import openpyxl
 
-from safety_stock.weight_search.__main__ import main
-
 from safety_stock.inventory_days.calc import CalcSettings
+from safety_stock.weight_search.__main__ import main
 from safety_stock.weight_search.search import run_search
 
 
@@ -56,3 +55,18 @@ def test_cli_select_start_not_after_actual_last_week(tmp_path, make_books, capsy
     out = tmp_path / '탐색.xlsx'
     assert main([str(base), '--actual', str(actual), '-o', str(out), '--select-weeks', '31-38']) == 2
     assert '실적 마지막 주차' in capsys.readouterr().out and not out.exists()
+
+
+def test_validation_compare_omits_scopes_without_skus(tmp_path, make_books):
+    # 그룹 XXX는 FCST가 없어 채점에서 빠지므로 '공통' 범위 SKU가 0개다 -> 검증비교에 행이 없어야 한다
+    base, actual = make_books(tmp_path)
+    wb = openpyxl.load_workbook(base)
+    wb['W30 구매마스터'].append(['CCC', 'XXX', 'x', 'B', 0.7, 0.3, 14, 30, 500, 100, 100, 20, 'B', 'B', 3, 3])
+    wb['Sales_WMS 출고'].append(['CCC', *([3] * 31)])
+    wb.save(base)
+    metrics = result_metrics(base, actual)[('검증', '탐색')]
+    assert any(m.scope == 'XXX' and not m.n_demand and not m.n_lt for m in metrics)  # 전제: 0개짜리 범위가 있다
+    out = tmp_path / '탐색.xlsx'
+    assert main([str(base), '--actual', str(actual), '-o', str(out)]) == 0
+    rows = list(openpyxl.load_workbook(out, data_only=True)['검증비교'].iter_rows(min_row=2, values_only=True))
+    assert rows and 'XXX' not in {r[1] for r in rows}

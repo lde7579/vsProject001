@@ -6,13 +6,11 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from safety_stock.inventory_days.calc import CalcSettings, build_inputs, compute_sku
-from safety_stock.inventory_days.loader import load_onhand, load_sales, load_summary
-from safety_stock.inventory_days.report import _open
+from safety_stock.common.xlsx import open_workbook
+from safety_stock.inventory_days.base import load_base
+from safety_stock.inventory_days.calc import CalcSettings
+from safety_stock.inventory_days.loader import load_sales
 from safety_stock.inventory_days.validate import SummaryMetric, ValidationRow, summarize, validate
-from safety_stock.mp_simulation.loader import load_weekly_plan
-from safety_stock.purchase_master.grade import compute_grades
-from safety_stock.purchase_master.loader import load_purchase_master
 from safety_stock.purchase_master.model import PurchaseMasterRow
 
 CANDIDATES = tuple(round(i / 10, 1) for i in range(11))  # 실적가중치 후보, FCST가중치 = 1 - w
@@ -20,6 +18,7 @@ MIN_GROUP_SKUS = 5  # 이보다 SKU가 적은 그룹은 공통 최적값을 쓴�
 POOLED = '전체'
 _NO_GROUP = '미분류'
 _TIE = 1e-12
+_TIE_DIGITS = 9  # 동점 거리 비교 시 부동소수점 오차를 없애는 반올림 자릿수
 
 Table = dict[float, dict[str, tuple[int, float | None]]]
 
@@ -73,7 +72,7 @@ def _best(wapes: dict[float, float | None], current: float) -> float | None:
     if not valid:
         return None
     lowest = min(valid.values())
-    return min((w for w, v in valid.items() if v - lowest <= _TIE), key=lambda w: (round(abs(w - current), 9), w))
+    return min((w for w, v in valid.items() if v - lowest <= _TIE), key=lambda w: (round(abs(w - current), _TIE_DIGITS), w))
 
 
 def choose(table: Table, current: dict[str, float]) -> list[Choice]:
@@ -99,29 +98,25 @@ class SearchResult:
     table: Table
     choices: list[Choice]
     metrics: dict[tuple[str, str], list[SummaryMetric]]  # (구간 '검증'|'전체구간', 가중치 '현재'|'탐색')
+    current_wape: dict[str, tuple[int, float | None]]  # 선택 구간에서 현재 가중치 그대로 계산한 group_wape
 
 
 def run_search(base: Path, actual: Path, settings: CalcSettings, select_weeks: range,
                holdout_weeks: range, full_weeks: range) -> SearchResult:
     """후보 w마다 모든 그룹에 같은 w를 적용해 선택 구간 WAPE 표를 만들고, 고른 w와 현재 w를 두 구간에서 비교한다."""
-    wb, actual_wb = _open(Path(base)), _open(Path(actual))
-    pm = load_purchase_master(wb)
-    grades = {sku: g.grade for sku, g in compute_grades(list(pm.values())).items()}
-    sales, fcst, onhand = load_sales(wb), load_weekly_plan(wb, 'SCM FCST'), load_onhand(wb)
-    corr = {sku: row.get('correction')
-            for sku, row in load_summary(wb, 'Summary_가중평균', required=('correction',)).items()}
-    actual_sales = load_sales(actual_wb)  # 실제 파일은 한 번만 읽는다
+    base_data = load_base(open_workbook(Path(base)))
+    actual_sales = load_sales(open_workbook(Path(actual)))  # 실제 파일은 한 번만 읽는다
+    pm = base_data.pm
     current = current_weights(pm)
 
-    def results(rows):
-        return [compute_sku(i) for i in build_inputs(rows, sales, fcst, onhand, corr, settings, grades=grades)]
-
-    table: Table = {w: group_wape(validate(results(with_weights(pm, dict.fromkeys(current, w))),
+    table: Table = {w: group_wape(validate(base_data.results(settings, with_weights(pm, dict.fromkeys(current, w))),
                                            actual_sales, select_weeks)) for w in CANDIDATES}
     choices = choose(table, current)
     applied = {c.group: c.chosen for c in choices if c.method != '현재유지'}  # 현재유지 그룹은 원래 행 그대로
-    variants = {'현재': results(pm), '탐색': results(with_weights(pm, applied))}
+    variants = {'현재': base_data.results(settings), '탐색': base_data.results(settings, with_weights(pm, applied))}
     metrics = {(label, name): summarize(validate(res, actual_sales, weeks))
                for label, weeks in (('검증', holdout_weeks), ('전체구간', full_weeks))
                for name, res in variants.items()}
-    return SearchResult(table, choices, metrics)
+    # 현재 가중치가 후보(0.1 간격)에 없어도 현재WAPE를 구할 수 있게, 현재 값 그대로 선택 구간을 한 번 계산한다
+    current_wape = group_wape(validate(variants['현재'], actual_sales, select_weeks))
+    return SearchResult(table, choices, metrics, current_wape)

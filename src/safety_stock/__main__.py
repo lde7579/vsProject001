@@ -1,25 +1,16 @@
 """명령줄 진입점: python -m safety_stock BASE.xlsx --actual ACTUAL.xlsx -o OUT.xlsx"""
 import argparse
-import re
 import sys
 from pathlib import Path
 
-from safety_stock.common.xlsx import InputError
+from safety_stock.common.xlsx import InputError, parse_weeks
 from safety_stock.inventory_days.calc import CalcSettings
 from safety_stock.inventory_days.report import run
 
 
-def _weeks(text: str) -> range | None:
-    """'A-B'(A ≤ B)를 range(A, B+1)로. 형식이 틀리면 None."""
-    m = re.fullmatch(r'\s*(\d+)\s*-\s*(\d+)\s*', text)
-    if not m or int(m.group(1)) > int(m.group(2)):
-        return None
-    return range(int(m.group(1)), int(m.group(2)) + 1)
-
-
 def _check_args(args) -> tuple[range | None, str | None]:
     """명령줄 값을 검사해 (검증 주차, 오류 메시지)를 돌려준다. 오류가 없으면 메시지는 None."""
-    weeks = _weeks(args.validation_weeks)
+    weeks = parse_weeks(args.validation_weeks)
     if weeks is None:
         return None, f"--validation-weeks 형식이 잘못되었습니다: '{args.validation_weeks}' (예: 35-43, 앞 주차 ≤ 뒤 주차)"
     if args.fcst_weeks < 1:

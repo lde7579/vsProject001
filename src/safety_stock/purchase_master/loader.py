@@ -1,6 +1,6 @@
 """요청자 엑셀의 구매마스터 시트를 읽어 SKU별 행으로 만든다."""
 from safety_stock.common.xlsx import (
-    find_header_row, find_sheet, header_cols, header_map, norm_header, norm_sku,
+    InputError, find_header_row, find_sheet, header_cols, header_map, norm_header, norm_sku,
     require_cols, to_number,
 )
 from safety_stock.purchase_master.model import PurchaseMasterRow, normalize_grade
@@ -25,6 +25,9 @@ _COLUMN_SPEC = {
 def master_columns(ws, hrow: int) -> dict[str, int | None]:
     """제목과 등장 순서로 구매마스터의 열 번호를 정한다. 없으면 None."""
     found = header_cols(ws, hrow)
+    # 등급 열(R~U)과 점수 열(V~Y)이 모두 있어야 첫 번째 등장을 등급, 두 번째를 점수로 읽을 수 있다
+    if any(len(found.get(norm_header(t), [])) < 2 for t in ('리드타임', '품질이슈')):
+        raise InputError(f"시트 '{ws.title}': 등급 열(단가·회전율·리드타임·품질이슈)과 점수 열이 모두 있어야 합니다")
     result: dict[str, int | None] = {}
     for key, (title, nth) in _COLUMN_SPEC.items():
         cols = found.get(norm_header(title), [])

@@ -4,8 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from safety_stock.__main__ import _weeks
-from safety_stock.common.xlsx import InputError
+from safety_stock.common.xlsx import InputError, parse_weeks
 from safety_stock.inventory_days.calc import CalcSettings
 from safety_stock.weight_search.report import write_search_report
 from safety_stock.weight_search.search import CANDIDATES, MIN_GROUP_SKUS, SearchResult, run_search
@@ -30,7 +29,7 @@ def _meta(base: Path, actual: Path, select: range, holdout: range, full: range) 
         '작은 그룹 규칙': f'선택 구간에서 수요오차가 있는 SKU가 {MIN_GROUP_SKUS}개 미만이면 모든 SKU를 합친 WAPE 최소 가중치(공통최적)',
         '현재유지': '그룹 또는 전체의 WAPE를 구할 수 없으면(실제 합 0 등) 현재 가중치를 유지',
         '재고등급': '계산 등급 사용(2단계)',
-        '검증비교 범위': "검증비교의 그룹 범위는 summarize의 '공통' 집합(세 산식 기준 모두 오차가 있는 SKU)을 그룹으로 거른 것이라, 선택가중치의 SKU 수와 다를 수 있다",
+        '검증비교 범위': "검증비교의 그룹 범위는 1단계 검증요약의 '공통' 범위(세 산식 기준 모두 오차가 있는 SKU)를 그룹으로 거른 것이라, 선택가중치의 SKU 수와 다를 수 있다",
         '한계': '선택 구간 4주뿐이고 통계적 유의성 검정이 없다. 개선 주장은 검증 구간 수치로만 한다',
     }
 
@@ -59,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--holdout-weeks', default='39-43', help='검증 구간 A-B(기본 39-43)')
     args = p.parse_args(argv)
 
-    select, holdout = _weeks(args.select_weeks), _weeks(args.holdout_weeks)
+    select, holdout = parse_weeks(args.select_weeks), parse_weeks(args.holdout_weeks)
     error = None
     if select is None:
         error = f"--select-weeks 형식이 잘못되었습니다: '{args.select_weeks}' (예: 35-38, 앞 주차 ≤ 뒤 주차)"

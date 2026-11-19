@@ -133,3 +133,23 @@ def test_current_and_searched_use_same_sku_set(tmp_path, make_books):
     def n(key):
         return next(m.n_demand for m in res.metrics[key] if m.scope == '전체' and m.basis == '가중평균')
     assert n(('검증', '현재')) == n(('검증', '탐색')) == 1
+
+
+def test_current_wape_filled_when_current_not_a_candidate(tmp_path, make_books):
+    import openpyxl
+    from safety_stock.weight_search.report import write_search_report
+    base, actual = make_books(tmp_path)
+    wb = openpyxl.load_workbook(base)
+    ws = wb['W30 구매마스터']
+    for row in (2, 3):
+        ws[f'E{row}'], ws[f'F{row}'] = 0.75, 0.25  # 후보(0.1 간격)에 없는 현재 가중치
+    wb.save(base)
+    res = run_search(base, actual, CalcSettings(), range(35, 39), range(39, 44), range(35, 44))
+    assert res.choices[0].current == 0.75
+    n, wape = res.current_wape['FLT']
+    assert n == 2 and wape is not None
+    out = tmp_path / '탐색.xlsx'
+    write_search_report(out, res, {})
+    sheet = openpyxl.load_workbook(out, data_only=True)['선택가중치']
+    row = next(sheet.iter_rows(min_row=2, values_only=True))
+    assert row[5] == pytest.approx(wape)

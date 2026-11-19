@@ -1,10 +1,32 @@
 """요청자 엑셀을 읽을 때 공통으로 쓰는 유틸."""
 import math
 import re
+from pathlib import Path
+
+import openpyxl
 
 
 class InputError(Exception):
     """사용자에게 그대로 보여줄 입력 오류(시트·열 이름 포함 메시지)."""
+
+
+def open_workbook(path, data_only: bool = True):
+    """엑셀을 연다. 없거나 xlsx가 아니거나 손상됐으면 InputError. data_only=False면 수식 문자열을 그대로 읽는다."""
+    path = Path(path)
+    try:
+        return openpyxl.load_workbook(path, data_only=data_only)
+    except FileNotFoundError:
+        raise InputError(f'파일을 찾을 수 없습니다: {path}') from None
+    except Exception as e:  # 손상됐거나 xlsx가 아닌 파일
+        raise InputError(f'엑셀 파일을 열 수 없습니다: {path} ({e})') from e
+
+
+def parse_weeks(text: str) -> range | None:
+    """'A-B'(A ≤ B)를 range(A, B+1)로. 형식이 틀리면 None."""
+    m = re.fullmatch(r'\s*(\d+)\s*-\s*(\d+)\s*', text)
+    if not m or int(m.group(1)) > int(m.group(2)):
+        return None
+    return range(int(m.group(1)), int(m.group(2)) + 1)
 
 
 def norm_sku(v) -> str | None:

@@ -2,10 +2,9 @@ import openpyxl
 import pytest
 
 from safety_stock.common.xlsx import InputError
-from safety_stock.inventory_days.calc import CalcSettings, build_inputs, compute_sku
+from safety_stock.inventory_days.base import load_base
+from safety_stock.inventory_days.calc import CalcSettings
 from safety_stock.inventory_days.compare import compare_with_excel
-from safety_stock.inventory_days.loader import load_onhand, load_sales, load_summary
-from safety_stock.mp_simulation.loader import load_weekly_plan
 from safety_stock.purchase_master.grade import compute_grades
 from safety_stock.purchase_master.loader import load_purchase_master
 from safety_stock.purchase_master.model import PurchaseMasterRow
@@ -31,13 +30,13 @@ def small_book(make_wb):
         head = ['SKU', '평균수요', '과소예측보정계수', '재고등급', 'Z값계수', '현재고', '수요표준편차', 'LT평균수요',
                 'LT수요편차', '적정안전재고', 'ROP(재주문점)', '적정재고일수', '적정안전재고일수']
         master_head = ['SKU', '품목그룹', '품목명', '재고등급', '실적 가중치', 'FCST 가중치', '리드타임(일)',
-                       '안전재고 값', '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈']
+                       '안전재고 값', '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈', '리드타임', '품질이슈']
         wb = make_wb({
             'W30 구매마스터': [
                 master_head,
-                ['AAA', 'FLT', 'a', 'C', 0.7, 0.3, 14, 30, 2000, 100, 100, 100, 'A', 'A'],
-                ['BBB', 'FLT', 'b', 'C', 0.7, 0.3, 14, 30, 1000, 0, 0, 50, 'C', 'C'],
-                ['CCC', 'FLT', 'c', 'C', 0.7, 0.3, 14, 30, 500, 100, 100, 20, 'B', 'B'],
+                ['AAA', 'FLT', 'a', 'C', 0.7, 0.3, 14, 30, 2000, 100, 100, 100, 'A', 'A', 3, 3],
+                ['BBB', 'FLT', 'b', 'C', 0.7, 0.3, 14, 30, 1000, 0, 0, 50, 'C', 'C', 3, 3],
+                ['CCC', 'FLT', 'c', 'C', 0.7, 0.3, 14, 30, 500, 100, 100, 20, 'B', 'B', 3, 3],
             ],
             'Sales_WMS 출고': [['SKU', *weeks], ['AAA', *range(10, 41)], ['BBB', *([5] * 31)], ['CCC', *([3] * 31)]],
             '0824_02 SCM FCST': [['품목 ID', 'x', *fcst_labels], ['AAA', None, *([20] * 13)],
@@ -54,16 +53,8 @@ def small_book(make_wb):
 
 
 def _compare(path):
-    wb = openpyxl.load_workbook(path, data_only=True)
-    pm = load_purchase_master(wb)
-    grades = {s: g.grade for s, g in compute_grades(list(pm.values())).items()}
-    weighted = load_summary(wb, 'Summary_가중평균', required=('correction',))
-    summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),
-                 'FCST기준': load_summary(wb, 'Summary_FCST')}
-    corr = {s: r.get('correction') for s, r in weighted.items()}
-    inputs = build_inputs(pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST'), load_onhand(wb),
-                          corr, CalcSettings(), grades=grades)
-    return compare_with_excel([compute_sku(i) for i in inputs], summaries)
+    base = load_base(openpyxl.load_workbook(path, data_only=True))
+    return compare_with_excel(base.results(CalcSettings()), base.summaries)
 
 
 def test_build_virtual_makes_excel_agree(tmp_path, small_book):
@@ -133,14 +124,14 @@ def test_every_changed_cell_is_logged(tmp_path, small_book):
 def test_population_change_reason_for_unfilled_rows(tmp_path, make_wb):
     """가상 재고로 채운 행 때문에 다른 행의 회전율 순위가 바뀌면 사유를 따로 남긴다."""
     head = ['SKU', '품목그룹', '품목명', '재고등급', '실적 가중치', 'FCST 가중치', '리드타임(일)', '안전재고 값',
-            '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈']
+            '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈', '리드타임', '품질이슈']
     spec = [('L', 300, 100, 'B', 'C'), ('M', 100, 60, 'A', 'C'), ('Q', 100, 20, 'A', 'B'),
             ('N', 400, 20, 'B', 'C'), ('Z', 500, 1000, 'A', 'A')]  # Z만 재고 0 → 가상 재고로 채워진다
     skus = [k for k, *_ in spec]
     weeks = [f'WK{n:02d}' for n in range(1, 32)]
     sh = ['SKU', '평균수요', '과소예측보정계수', '재고등급', 'Z값계수']
     master = [head, *[[k, 'F', k, 'C', 0.7, 0.3, 14, 30, price, 0 if k == 'Z' else 10, 0 if k == 'Z' else 10,
-                       fcst, lt, q] for k, price, fcst, lt, q in spec]]
+                       fcst, lt, q, 3, 3] for k, price, fcst, lt, q in spec]]
     wb = make_wb({
         'Sales_WMS 출고': [['SKU', *weeks], *[[k, *([5] * 31)] for k in skus]],
         '0824_02 SCM FCST': [['품목 ID', 'x', *[f'W{n}(08/24)' for n in range(35, 48)]],
