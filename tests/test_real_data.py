@@ -108,10 +108,18 @@ def test_actual_and_fcst_basis_demand_match(real_run):
 def test_validation_summary_filled(real_run):
     overall = {m.basis: m for m in real_run.metrics if m.scope == '전체'}
     assert set(overall) == set(VALIDATION_BASES)
-    # Task 7 결정: 실적·FCST 입력이 없는 SKU는 채점 제외(FCST없음 24, 실적없음+FCST없음 15, 실적파일없음 11) → 126 중 76.
-    # 실제 파일에만 있는 SKU는 '계산대상없음' 행으로 붙지만 채점 값이 없어 지표에 영향이 없다
+    # Task 7 결정: 실적·FCST 입력이 없는 SKU는 채점 제외(FCST없음 24, 실적없음+FCST없음 15, 실적파일없음 10) → 126 중 77.
+    # BID SKU 코드를 BIDSS1DR15WH로 통일해 이제 실제 파일과 매칭된다(실적파일없음 11→10, 검증 SKU +1).
+    # 따라서 실제 파일에만 있는 '계산대상없음' 행은 없다(단위 테스트에서 별도 검증)
     assert overall['가중평균'].n_demand >= 70 and overall['가중평균'].n_lt > 0 and overall['기존수기'].n_lt > 0
-    assert [r.sku for r in real_run.validation if r.memo == '계산대상없음'] != []
+    assert [r.sku for r in real_run.validation if r.memo == '계산대상없음'] == []
+    assert sum(r.memo == '실적파일없음' for r in real_run.validation) == 10
+    # 보정계수이상 3개 SKU는 실적기준·FCST기준 채점에서 빠지고, 가중평균·기존수기 채점은 그대로다
+    bad = {r.sku: r for r in real_run.validation if r.sku in {'FLTACLR11HWH', 'SENSAWR1KRDW', 'SENSAWR1KRNG'}}
+    assert len(bad) == 3
+    for r in bad.values():  # 다른 제외 사유(FCST없음 등)가 있으면 그 사유가 우선이라 어쨌든 채점되지 않는다
+        for b in ('실적기준', 'FCST기준'):
+            assert r.checks[b].excluded is not None and r.checks[b].covered is None, (r.sku, b)
 
 
 def test_abnormal_correction_flagged(real_run):

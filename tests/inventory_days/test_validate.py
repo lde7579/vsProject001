@@ -21,7 +21,7 @@ def test_validate_and_summarize():
     assert row.actual_week_avg == 20 and row.actual_lt_demand == 40
     w = row.checks['가중평균']
     assert w.error_week == approx(17.6 - 20) and w.covered is True
-    assert row.checks['기존수기'].target_qty == approx(30 * 17.6 / 7) and row.checks['기존수기'].predicted_week is None
+    assert row.checks['기존수기'].target_qty == approx(17.6 * 2 + 30 * 17.6 / 7) and row.checks['기존수기'].predicted_week is None
     m = {(s.scope, s.basis): s for s in summarize([row])}
     assert m[('전체', '가중평균')].wape == approx(2.4 / 20) and m[('전체', '가중평균')].coverage == 1.0
     assert m[('G', '기존수기')].n_demand == 0 and m[('G', '기존수기')].wape is None
@@ -124,3 +124,28 @@ def test_error_share_sums_to_one_per_basis():
             c = r.checks[basis]
             assert c.error_share == (None if c.error_week is None else approx(abs(c.error_week) / total))
     assert all(r.checks['기존수기'].error_share is None for r in rows)
+
+
+def test_abnormal_correction_excluded_from_actual_fcst_only():
+    # k=29.82(3 초과): 실적기준·FCST기준은 채점 제외, 가중평균·기존수기는 그대로 채점
+    bad = compute_sku(SkuInputs('K', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 29.82, 50, [10.0] * 4, [12.0] * 13))
+    ok = compute_sku(SkuInputs('O', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 1.0, 50, [10.0] * 4, [12.0] * 13))
+    actual = WeeklySales(list(range(35, 44)), {'K': [20.0] * 9, 'O': [20.0] * 9})
+    rows = validate([bad, ok], actual, range(35, 44))
+    k = rows[0]
+    for b in ('실적기준', 'FCST기준'):
+        c = k.checks[b]
+        assert c.excluded == '보정계수이상'
+        assert (c.target_qty, c.predicted_week, c.error_week, c.covered, c.actual_days) == (None,) * 5
+    assert k.checks['가중평균'].excluded is None and k.checks['가중평균'].covered is not None
+    assert k.checks['기존수기'].excluded is None and k.checks['기존수기'].target_qty is not None
+    assert rows[1].checks['실적기준'].excluded is None
+    m = {(s.scope, s.basis): s for s in summarize(rows)}
+    assert m[('공통', '가중평균')].n_demand == 1 and m[('전체', '가중평균')].n_demand == 2
+    assert m[('공통', '실적기준')].n_lt == 1
+    # k=0도 이상, 다른 제외 사유가 있으면 그 사유가 우선
+    zero = compute_sku(SkuInputs('Z', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 0.0, 50, [10.0] * 4, [12.0] * 13))
+    noact = compute_sku(SkuInputs('N', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 29.82, 50, None, [12.0] * 13))
+    r = validate([zero, noact], WeeklySales(list(range(35, 44)), {'Z': [1.0] * 9, 'N': [1.0] * 9}), range(35, 44))
+    assert r[0].checks['FCST기준'].excluded == '보정계수이상'
+    assert r[1].checks['실적기준'].excluded == '실적없음' and r[1].checks['FCST기준'].excluded == '보정계수이상'

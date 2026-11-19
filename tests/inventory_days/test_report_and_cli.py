@@ -174,6 +174,7 @@ def test_meta_has_review_items(tmp_path, minimal_books):
     assert {'실행 시각', '대조 허용오차', '범위 정의', '기존수기 목표재고량', '결품 방어', '검증 대상 SKU'} <= set(meta)
     assert '0.5%' in meta['대조 허용오차'] and '±0.5' in meta['대조 허용오차']
     assert all(w in meta['범위 정의'] for w in ("'전체'", "'공통'", '품목그룹'))
+    assert '리드타임 동안 가중평균 수요' in meta['기존수기 목표재고량'] and '보정계수이상' in meta['보정계수 이상']
     assert '가중평균 일평균수요' in meta['기존수기 목표재고량'] and '63일' in meta['결품 방어']
     assert 'W35(08/24)~W47(08/24)' in meta['FCST 주 수']
     assert '두 파일' in meta['검증 대상 SKU'] and '계산대상없음' in meta['검증 대상 SKU']
@@ -193,3 +194,12 @@ def test_cli_argument_checks(tmp_path, minimal_books, capsys, extra, word):
     text = capsys.readouterr().out
     assert '입력 오류' in text and word in text
     assert not out.exists()
+
+
+def test_existing_manual_total_days_column(tmp_path, minimal_books):
+    ws = _run(tmp_path, minimal_books)['산출결과']
+    col = _col(ws, '기존수기_적정재고일수')
+    assert _col(ws, '기존안전재고일수') + 1 == col
+    # AAA: 리드타임 14일 + 기존 안전재고 30일 = 44일
+    assert ws.cell(row=2, column=col).value == pytest.approx(44.0)
+    assert ws.cell(row=2, column=col).number_format == '0.0'

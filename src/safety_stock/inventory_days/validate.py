@@ -7,7 +7,7 @@ import statistics
 from dataclasses import dataclass, replace
 
 from safety_stock.common.xlsx import InputError
-from safety_stock.inventory_days.calc import BASES, SkuResult
+from safety_stock.inventory_days.calc import BASES, CORRECTION_MAX, SkuResult
 from safety_stock.inventory_days.loader import WeeklySales
 
 VALIDATION_BASES = ('기존수기',) + BASES
@@ -105,9 +105,12 @@ def validate(results: list[SkuResult], actual: WeeklySales, weeks: range) -> lis
 
         targets: dict[str, tuple[float | None, float | None]] = {}
         weighted_demand = res.bases['가중평균'].demand_week
+        weighted_lt_demand = res.bases['가중평균'].lt_demand
         manual = None
-        if inp.current_ss_days is not None and weighted_demand is not None:
-            manual = inp.current_ss_days * (weighted_demand / 7)
+        # 기존 값은 안전재고 일수(리드타임 수요 미포함): 목표 = LT 수요 + 안전재고 일수 × 일평균수요
+        if (inp.current_ss_days is not None and weighted_demand is not None
+                and weighted_lt_demand is not None):
+            manual = weighted_lt_demand + inp.current_ss_days * (weighted_demand / 7)
         targets['기존수기'] = (manual, None)
         for b in BASES:
             targets[b] = (res.bases[b].rop, res.bases[b].demand_week)
@@ -115,9 +118,12 @@ def validate(results: list[SkuResult], actual: WeeklySales, weeks: range) -> lis
         no_actual = res.actual_mean is None
         no_fcst = res.fcst_mean is None
         both = ', '.join(r for r, f in (('실적없음', no_actual), ('FCST없음', no_fcst)) if f) or None
+        # 보정계수 이상치는 보정계수를 쓰는 실적·FCST기준만 채점에서 뺀다(다른 사유가 있으면 그 사유 우선)
+        k = inp.correction
+        bad_k = '보정계수이상' if k is not None and (k == 0 or k > CORRECTION_MAX) else None
         reasons = {'기존수기': both, '가중평균': both,
-                   '실적기준': '실적없음' if no_actual else None,
-                   'FCST기준': 'FCST없음' if no_fcst else None}
+                   '실적기준': '실적없음' if no_actual else bad_k,
+                   'FCST기준': 'FCST없음' if no_fcst else bad_k}
 
         checks = {}
         for b, (target, predicted) in targets.items():

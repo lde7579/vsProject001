@@ -98,8 +98,8 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
     for b in BASES:
         headers += [f'{b}_{t}' for t, _, _ in _BASIS_COLS]
         formats += [f for _, _, f in _BASIS_COLS]
-    headers += ['기존안전재고일수', '점검메모']
-    formats += [DAYS, None]
+    headers += ['기존안전재고일수', '기존수기_적정재고일수', '점검메모']
+    formats += [DAYS, DAYS, None]
     rows = []
     for res in results:
         inp = res.inputs
@@ -108,7 +108,10 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
             for _, attr, _ in _BASIS_COLS:
                 v = getattr(res.bases[b], attr)
                 row.append(ORDER_LABELS.get(v, v) if attr == 'order' else v)
-        row += [inp.current_ss_days, ', '.join(res.memo)]
+        # 표시용: 기존수기 적정재고일수 = 리드타임 + 기존 안전재고일수
+        manual_days = (inp.lead_time_days + inp.current_ss_days
+                       if inp.lead_time_days is not None and inp.current_ss_days is not None else None)
+        row += [inp.current_ss_days, manual_days, ', '.join(res.memo)]
         rows.append(row)
     _write_table(sheets['산출결과'], headers, rows, formats)
 
@@ -210,11 +213,13 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
         '대조 항목': '수요, σ, LT평균수요, LT수요편차, 안전재고, ROP, 적정재고일수, 안전재고일수, 현재고'
                  '(현재고는 기준과 무관한 값이라 세 기준 행 모두에 같은 비교가 들어간다)',
         '대조 허용오차': '엑셀 표시 자릿수 반올림 ±0.5단위 + 엑셀값의 0.5%(보정계수·가중치 반올림 여유)',
-        '보정계수 이상': f'보정계수가 0이거나 {CORRECTION_MAX:g}보다 크면 점검메모 보정계수이상(계산은 그대로)',
+        '보정계수 이상': f'보정계수가 0이거나 {CORRECTION_MAX:g}보다 크면 점검메모 보정계수이상(계산은 그대로). '
+                   '사후 검증에서는 실적기준·FCST기준을 채점 제외(제외사유 보정계수이상), 가중평균·기존수기는 그대로 채점',
         '검증 원칙': '실제 출고는 검증에만 쓰고 계산 입력에는 쓰지 않는다',
         '검증 대상 SKU': '기준 파일과 실제 출고 파일 두 파일에 모두 있는 SKU. '
                      '실제 파일에 없으면 메모 실적파일없음, 실제 파일에만 있으면 메모 계산대상없음(채점 안 함)',
-        '기존수기 목표재고량': '기존 안전재고 값(일) × 가중평균 일평균수요(가중평균 주수요/7)',
+        '기존수기 목표재고량': '리드타임 동안 가중평균 수요 + 기존 안전재고일수 × 가중평균 일평균수요(가중평균 주수요/7). '
+                     '기존 값은 MP UI에 등록한 제품별 일별 안전재고(일)라 리드타임 수요는 따로 더한다',
         '산식 기준 목표재고량': 'ROP',
         '결품 방어': f'목표재고량 ≥ 실제 LT 구간 수요이면 방어. 리드타임 {7 * len(validation_weeks)}일'
                  '(검증 구간) 이하 SKU만',
