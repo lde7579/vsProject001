@@ -10,6 +10,7 @@ from safety_stock.inventory_days.loader import load_onhand, load_sales, load_sum
 from safety_stock.inventory_days.validate import VALIDATION_BASES, summarize, validate
 from safety_stock.mp_simulation.loader import load_weekly_plan
 from safety_stock.purchase_master.loader import load_purchase_master
+from safety_stock.purchase_master.grade import compute_grades, grade_verdict
 
 DATA = Path(__file__).resolve().parents[1] / 'data'
 BASE = DATA / Path('재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사.xlsx')
@@ -126,3 +127,18 @@ def test_abnormal_correction_flagged(real_run):
     # 보정계수 0 또는 3 초과(예: SENSAWR1KRNG k=29.82)는 계산은 그대로 하고 메모만 붙인다
     memo = {r.inputs.sku: r.memo for r in real_run.results}
     assert {s for s, m in memo.items() if '보정계수이상' in m} == {'FLTACLR11HWH', 'SENSAWR1KRDW', 'SENSAWR1KRNG'}
+
+
+@pytest.fixture(scope='module')
+def real_grades():
+    if not BASE.exists():
+        pytest.skip('실데이터 파일이 없다')
+    rows = list(load_purchase_master(openpyxl.load_workbook(BASE, data_only=True)).values())
+    return rows, compute_grades(rows)
+
+
+def test_grades_match_excel_all_rows(real_grades):
+    rows, grades = real_grades
+    assert len(rows) == 116
+    assert {grade_verdict(r, grades[r.sku]) for r in rows} == {'일치'}
+    assert sum(g.turnover is None for g in grades.values()) == 16
