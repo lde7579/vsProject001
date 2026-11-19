@@ -69,7 +69,7 @@ def _best(wapes: dict[float, float | None], current: float) -> float | None:
     if not valid:
         return None
     lowest = min(valid.values())
-    return min((w for w, v in valid.items() if v - lowest <= _TIE), key=lambda w: (abs(w - current), w))
+    return min((w for w, v in valid.items() if v - lowest <= _TIE), key=lambda w: (round(abs(w - current), 9), w))
 
 
 def choose(table: Table, current: dict[str, float]) -> list[Choice]:

@@ -99,3 +99,15 @@ def test_selection_ignores_holdout(tmp_path, make_books):
     assert set(r1.metrics) == {('검증', '현재'), ('검증', '탐색'), ('전체구간', '현재'), ('전체구간', '탐색')}
     # 검증 구간 수치에는 검증 구간 데이터가 쓰인다
     assert r1.metrics[('검증', '현재')] != r2.metrics[('검증', '현재')]
+
+
+def test_choose_tie_distance_float_safe():
+    # 현재 0.2에서 0.1과 0.3은 거리가 같다 -> 작은 w(0.1)
+    spec = {'전체': (9, FLAT), 'X': (6, {**FLAT, 0.1: 0.1, 0.3: 0.1})}
+    assert choose(_table(spec), {'X': 0.2})[0].chosen == 0.1
+
+
+def test_choose_small_group_own_wape_all_none_keeps_current():
+    # 작은 그룹(n<5)이고 자기 WAPE가 모두 None이면 전체 값이 있어도 현재유지
+    spec = {'전체': (9, {**FLAT, 0.6: 0.1}), 'S': (2, {})}
+    assert choose(_table(spec), {'S': 0.7}) == [Choice('S', 2, 0.7, 0.7, '현재유지')]

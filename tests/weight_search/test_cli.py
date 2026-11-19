@@ -2,6 +2,14 @@ import openpyxl
 
 from safety_stock.weight_search.__main__ import main
 
+from safety_stock.inventory_days.calc import CalcSettings
+from safety_stock.weight_search.search import run_search
+
+
+def result_metrics(base, actual):
+    return run_search(base, actual, CalcSettings(), range(35, 39), range(39, 44), range(35, 44)).metrics
+
+
 SHEETS = ['후보성능', '선택가중치', '검증비교', '적용기준']
 
 
@@ -22,6 +30,12 @@ def test_cli_writes_sheets_and_prints(tmp_path, make_books, capsys):
     assert {r[3] for r in rows} == {'가중평균', '기존수기'}
     assert {r[0] for r in rows} == {'검증', '전체구간'} and {r[2] for r in rows} == {'현재', '탐색'}
     assert '공통' not in {r[1] for r in rows}
+    assert heads['검증비교'] == ['구간', '범위', '가중치', '기준', '수요비교SKU수', 'WAPE', '편향',
+                             'LT검증SKU수', '결품방어율', '실제기준재고일수중앙값']
+    # 한 행이 SummaryMetric과 같은 값인지
+    m = next(m for m in result_metrics(base, actual)[('검증', '탐색')] if m.scope == '전체' and m.basis == '가중평균')
+    row = next(r for r in rows if r[:4] == ('검증', '전체', '탐색', '가중평균'))
+    assert row[4:] == (m.n_demand, m.wape, m.bias, m.n_lt, m.coverage, m.median_actual_days)
 
 
 def test_cli_bad_weeks(tmp_path, make_books, capsys):
