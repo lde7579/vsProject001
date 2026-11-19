@@ -162,8 +162,11 @@ def compute_sku(inp: SkuInputs) -> SkuResult:
 
 def build_inputs(pm: dict[str, PurchaseMasterRow], sales: WeeklySales, fcst: WeeklyPlan,
                  onhand: dict[str, float], corrections: dict[str, float | None],
-                 settings: CalcSettings) -> list[SkuInputs]:
-    """구매마스터 → 출고에만 있는 SKU → FCST에만 있는 SKU 순서로 입력을 만든다."""
+                 settings: CalcSettings, *, grades: dict[str, str | None]) -> list[SkuInputs]:
+    """구매마스터 → 출고에만 있는 SKU → FCST에만 있는 SKU 순서로 입력을 만든다.
+
+    재고등급은 엑셀 값이 아니라 넘겨받은 계산 등급(grades)을 쓴다. 없으면 None(등급없음).
+    """
     cols = [i for i, w in enumerate(sales.week_numbers)
             if settings.actual_first_week <= w <= settings.actual_last_week]
     fcst_first = first_weeks(fcst, settings.fcst_weeks)
@@ -183,7 +186,7 @@ def build_inputs(pm: dict[str, PurchaseMasterRow], sales: WeeklySales, fcst: Wee
             sku=sku,
             group=row.group if row else None,
             name=row.name if row else None,
-            grade=row.grade if row else None,
+            grade=grades.get(sku),
             weight_actual=row.weight_actual if row else None,
             weight_fcst=row.weight_fcst if row else None,
             lead_time_days=row.lead_time_days if row else None,

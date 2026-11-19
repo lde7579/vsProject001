@@ -45,13 +45,18 @@ class RealRun:
         corrections = {s: r.get('correction') for s, r in weighted.items()}
         summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),
                      'FCST기준': load_summary(wb, 'Summary_FCST')}
-        inputs = build_inputs(load_purchase_master(wb), load_sales(wb), load_weekly_plan(wb, 'SCM FCST'),
-                              load_onhand(wb), corrections, CalcSettings())
+        pm = load_purchase_master(wb)
+        grades = {s: g.grade for s, g in compute_grades(list(pm.values())).items()}
+        inputs = build_inputs(pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST'),
+                              load_onhand(wb), corrections, CalcSettings(), grades=grades)
         self.results = [compute_sku(i) for i in inputs]
         self.rows = compare_with_excel(self.results, summaries)
         self.verdicts = sku_verdicts(self.rows)
         # 산식 재현 여부는 계산값끼리 본다: 입력값인 현재고 대조를 뺀 판정
         self.formula_verdicts = sku_verdicts([r for r in self.rows if r.field != 'onhand'])
+        self.actual_sales = load_sales(actual_wb)
+        self.pm, self.sales, self.fcst = pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST')
+        self.onhand, self.corrections = load_onhand(wb), corrections
         self.validation = validate(self.results, load_sales(actual_wb), range(35, 44))
         self.metrics = summarize(self.validation)
 
@@ -142,3 +147,16 @@ def test_grades_match_excel_all_rows(real_grades):
     assert len(rows) == 116
     assert {grade_verdict(r, grades[r.sku]) for r in rows} == {'일치'}
     assert sum(g.turnover is None for g in grades.values()) == 16
+
+
+def test_metrics_unchanged_with_computed_grades(real_run):
+    # 계산 등급이 엑셀 등급과 모두 같으므로, 어느 쪽 등급으로 만들어도 검증 지표가 같다
+    r = real_run
+
+    def metrics(grades):
+        inputs = build_inputs(r.pm, r.sales, r.fcst, r.onhand, r.corrections, CalcSettings(), grades=grades)
+        return summarize(validate([compute_sku(i) for i in inputs], r.actual_sales, range(35, 44)))
+
+    excel = metrics({s: row.grade for s, row in r.pm.items()})
+    computed = metrics({s: g.grade for s, g in compute_grades(list(r.pm.values())).items()})
+    assert excel == computed

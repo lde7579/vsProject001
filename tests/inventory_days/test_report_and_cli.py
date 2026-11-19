@@ -16,8 +16,8 @@ def minimal_books(make_wb):
             'W30 구매마스터': [
                 ['SKU', '품목그룹', '품목명', '재고등급', '실적 가중치', 'FCST 가중치', '리드타임(일)', '안전재고 값',
                  '구매단가', '기초재고', '기말재고', 'FCST', '리드타임', '품질이슈'],
-                ['AAA', 'FLT', '필터', 'A', 0.7, 0.3, 14, 30, 1000, 100, 100, 50, 'B', 'B'],
-                ['BBB', 'FLT', '필터2', 'B', 0.7, 0.3, 14, 30, 1000, 100, 100, 50, 'B', 'B'],
+                ['AAA', 'FLT', '필터', 'A', 0.7, 0.3, 14, 30, 2000, 100, 100, 100, 'A', 'A'],
+                ['BBB', 'FLT', '필터2', 'B', 0.7, 0.3, 14, 30, 1000, 100, 100, 50, 'C', 'C'],
             ],
             'Sales_WMS 출고': [['SKU', *weeks], ['AAA', *range(10, 41)], ['BBB', *([5] * 31)]],
             '0824_02 SCM FCST': [['품목 ID', 'x', *fcst_labels], ['AAA', None, *([20] * 13)]],
@@ -52,6 +52,15 @@ def test_cli_writes_all_sheets(tmp_path, minimal_books, capsys):
     assert '공통' in {r[0].value for r in wb['검증요약'].iter_rows(min_row=2)}
     out_text = capsys.readouterr().out
     assert '처리 SKU 수: 2' in out_text and str(out) in out_text
+    assert '재고등급 엑셀 일치 SKU 수: 1/2' in out_text
+    # 재고등급 시트: AAA는 일치, BBB는 계산 C라 엑셀 B와 불일치
+    gs = wb['재고등급']
+    verdict = {r[0].value: r[_col(gs, '판정') - 1].value for r in gs.iter_rows(min_row=2)}
+    assert verdict == {'AAA': '일치', 'BBB': '불일치'}
+    # 산출결과의 재고등급·Z는 계산 등급(C=1.036)을 따른다
+    ws = wb['산출결과']
+    assert ws.cell(row=3, column=_col(ws, '재고등급')).value == 'C'
+    assert ws.cell(row=3, column=_col(ws, '가중평균_Z')).value == pytest.approx(1.036)
 
 
 def test_cli_input_error_exit_code(tmp_path, capsys):

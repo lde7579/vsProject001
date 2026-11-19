@@ -52,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(f"처리 SKU 수: {summary['sku_count']}")
     print(f"가중평균 엑셀 일치 SKU 수: {summary['match_count_weighted']}")
+    print(f"재고등급 엑셀 일치 SKU 수: {summary['grade_match_count']}/{summary['grade_count']}")
     print(f"결과 파일: {summary['out']}")
     return 0
 

@@ -57,7 +57,7 @@ def test_build_inputs_selects_weeks_and_union():
     sales = WeeklySales(week_numbers=[30, 31, 32], by_sku={'A': [1, 2, 3], 'Z': [5, 5, 5]})
     pm = {'A': PurchaseMasterRow('A', 'G', 'n', 'A', 0.7, 0.3, 14, 30)}
     fcst = WeeklyPlan('f', ['W35(08/24)'], {})
-    inputs = build_inputs(pm, sales, fcst, {}, {}, CalcSettings())
+    inputs = build_inputs(pm, sales, fcst, {}, {}, CalcSettings(), grades={'A': 'A'})
     assert [i.sku for i in inputs] == ['A', 'Z'] and inputs[0].actual_hist == [1, 2]
     assert inputs[0].fcst13 is None
     assert 'FCST없음' in compute_sku(inputs[0]).memo and '구매마스터없음' in compute_sku(inputs[1]).memo
@@ -67,7 +67,8 @@ def test_build_inputs_fcst_only_sku_and_order():
     sales = WeeklySales(week_numbers=[1], by_sku={'S': [4]})
     pm = {'M': PurchaseMasterRow('M', None, None, 'C', 0.5, 0.5, 7, None)}
     fcst = WeeklyPlan('f', ['W35(08/24)', 'W36(08/31)'], {'F': [1, None], 'M': [2, 3]})
-    inputs = build_inputs(pm, sales, fcst, {'M': 9.0}, {'M': 1.2}, CalcSettings(fcst_weeks=2))
+    inputs = build_inputs(pm, sales, fcst, {'M': 9.0}, {'M': 1.2}, CalcSettings(fcst_weeks=2),
+                          grades={'M': 'C'})
     assert [i.sku for i in inputs] == ['M', 'S', 'F']
     assert inputs[0].fcst13 == [2, 3] and inputs[0].onhand == 9.0 and inputs[0].correction == 1.2
     assert inputs[2].fcst13 == [1, 0] and inputs[2].in_master is False
@@ -132,3 +133,14 @@ def test_all_blank_actual_rows_count_as_no_actual():
     for b in ('기존수기', '가중평균', '실적기준'):
         assert row.checks[b].excluded == '실적없음' and row.checks[b].error_week is None
     assert row.checks['FCST기준'].excluded is None and row.checks['FCST기준'].error_week is not None
+
+
+def test_build_inputs_uses_given_grades():
+    # 엑셀 등급이 'A'여도 넘긴 계산 등급이 쓰인다. 없으면 None + 등급없음 메모
+    sales = WeeklySales(week_numbers=[1], by_sku={'A': [1]})
+    pm = {'A': PurchaseMasterRow('A', 'G', 'n', 'A', 0.7, 0.3, 14, 30)}
+    fcst = WeeklyPlan('f', ['W35(08/24)'], {})
+    given = build_inputs(pm, sales, fcst, {}, {}, CalcSettings(), grades={'A': 'C'})
+    assert given[0].grade == 'C'
+    none = build_inputs(pm, sales, fcst, {}, {}, CalcSettings(), grades={})
+    assert none[0].grade is None and '등급없음' in compute_sku(none[0]).memo

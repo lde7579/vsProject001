@@ -25,10 +25,11 @@ from safety_stock.inventory_days.validate import (
     validate,
 )
 from safety_stock.mp_simulation.loader import load_weekly_plan
+from safety_stock.purchase_master.grade import GradeResult, compute_grades, grade_verdict
 from safety_stock.purchase_master.loader import load_purchase_master
-from safety_stock.purchase_master.model import Z_BY_GRADE
+from safety_stock.purchase_master.model import Z_BY_GRADE, PurchaseMasterRow
 
-REPORT_SHEETS = ['산출결과', '엑셀대조', '검증_SKU', '검증요약', '적용기준']
+REPORT_SHEETS = ['산출결과', '재고등급', '엑셀대조', '검증_SKU', '검증요약', '적용기준']
 
 QTY, DAYS, PCT = '#,##0', '0.0', '0.0%'
 SIGMA = '#,##0.0'  # σ류는 작은 값이 0으로 보이지 않도록 소수 1자리
@@ -57,6 +58,26 @@ _COMMON_COLS = [
     ('리드타임(일)', lambda i, r: i.lead_time_days, DAYS), ('보정계수', lambda i, r: i.correction, '0.000'),
     ('현재고', lambda i, r: i.onhand, QTY),
     ('실적평균', lambda i, r: r.actual_mean, QTY), ('FCST평균', lambda i, r: r.fcst_mean, QTY),
+]
+# 재고등급 시트의 열: (제목, (구매마스터 행, 계산 결과) -> 값, 표시 형식)
+_GRADE_COLS = [
+    ('SKU', lambda r, g: r.sku, None), ('품목그룹', lambda r, g: r.group, None),
+    ('구매단가', lambda r, g: r.price, QTY), ('기초재고', lambda r, g: r.begin_stock, QTY),
+    ('기말재고', lambda r, g: r.end_stock, QTY), ('FCST', lambda r, g: r.fcst_qty, QTY),
+    ('회전율', lambda r, g: g.turnover, '0.0000'), ('엑셀회전율', lambda r, g: r.excel_turnover, '0.0000'),
+    ('단가백분위', lambda r, g: g.price_rank, '0.000'), ('단가등급', lambda r, g: g.price_grade, None),
+    ('엑셀단가등급', lambda r, g: r.excel_price_grade, None),
+    ('회전율백분위', lambda r, g: g.turnover_rank, '0.000'), ('회전율등급', lambda r, g: g.turnover_grade, None),
+    ('엑셀회전율등급', lambda r, g: r.excel_turnover_grade, None),
+    ('리드타임등급', lambda r, g: g.lt_grade, None), ('품질등급', lambda r, g: g.quality_grade, None),
+    ('단가점수', lambda r, g: g.scores[0] if g.scores else None, '0'),
+    ('회전율점수', lambda r, g: g.scores[1] if g.scores else None, '0'),
+    ('리드타임점수', lambda r, g: g.scores[2] if g.scores else None, '0'),
+    ('품질점수', lambda r, g: g.scores[3] if g.scores else None, '0'),
+    ('종합', lambda r, g: g.total, '0'), ('엑셀종합', lambda r, g: r.excel_total, '0'),
+    ('종합백분위', lambda r, g: g.total_rank, '0.000'), ('재고등급', lambda r, g: g.grade, None),
+    ('엑셀재고등급', lambda r, g: r.grade, None), ('판정', lambda r, g: grade_verdict(r, g), None),
+    ('메모', lambda r, g: g.memo, None),
 ]
 _CHECK_COLS = [
     ('목표재고량', 'target_qty', QTY), ('예측주수요', 'predicted_week', QTY),
@@ -87,7 +108,7 @@ def _write_table(ws, headers, rows, formats):
 
 def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
                  validation_rows: list[ValidationRow], metrics: list[SummaryMetric],
-                 meta: dict[str, str]) -> None:
+                 meta: dict[str, str], grade_rows: list[tuple[PurchaseMasterRow, GradeResult]]) -> None:
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     sheets = {name: wb.create_sheet(name) for name in REPORT_SHEETS}
@@ -114,6 +135,11 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
         row += [inp.current_ss_days, manual_days, ', '.join(res.memo)]
         rows.append(row)
     _write_table(sheets['산출결과'], headers, rows, formats)
+
+    # 재고등급: 구매마스터 행마다 계산 과정과 엑셀 값 대조
+    _write_table(sheets['재고등급'], [h for h, _, _ in _GRADE_COLS],
+                 [[get(r, g) for _, get, _ in _GRADE_COLS] for r, g in grade_rows],
+                 [f for _, _, f in _GRADE_COLS])
 
     # 엑셀대조: 필드별 행 + 그 SKU의 판정(일치/불일치/비교불가)
     verdicts = sku_verdicts(compare_rows)
@@ -175,6 +201,8 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
     actual_wb = _open(actual)
 
     pm = load_purchase_master(wb)
+    grade_results = compute_grades(list(pm.values()))
+    grades = {sku: g.grade for sku, g in grade_results.items()}
     sales = load_sales(wb)
     fcst = load_weekly_plan(wb, 'SCM FCST')
     onhand = load_onhand(wb)
@@ -186,7 +214,7 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
         'FCST기준': load_summary(wb, 'Summary_FCST'),
     }
 
-    results = [compute_sku(i) for i in build_inputs(pm, sales, fcst, onhand, corrections, settings)]
+    results = [compute_sku(i) for i in build_inputs(pm, sales, fcst, onhand, corrections, settings, grades=grades)]
     compare_rows = compare_with_excel(results, summaries)
     validation_rows = validate(results, load_sales(actual_wb), validation_weeks)
     metrics = summarize(validation_rows)
@@ -206,6 +234,9 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
         '가중평균 σ': '실적σ×실적가중치 + FCSTσ×FCST가중치',
         '실적기준 수요': '실적평균×보정계수',
         'FCST기준 수요': 'FCST평균×보정계수',
+        '재고등급': '단가·회전율 PERCENTRANK.INC(소수 3자리 내림) ≥0.75 A, ≥0.26 B, 그 외 C(회전율 분모 0이면 C). '
+                '점수 단가 A5/B3/C1·회전율 A10/B5/C1·리드타임 A5/B3/C1·품질 A5/B3/C0, 종합 백분위로 같은 경계. '
+                '리드타임·품질 등급은 입력값. 계산 등급을 Z값에 사용',
         '안전재고': 'Z × σ × √(리드타임/7)',
         'ROP': 'LT평균수요 + 안전재고',
         '일수 계산': '적정재고일수·안전재고일수·현재고일수 = 값 ÷ (주수요/7)',
@@ -228,11 +259,14 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
                  "'공통'=수요 지표는 세 산식 기준 모두 수요오차가 있는 SKU, LT 지표는 네 기준 모두 방어 여부가 있는 SKU. "
                  "품목그룹=공통 범위의 SKU를 그 그룹으로 거른 것",
     }
-    write_report(out, results, compare_rows, validation_rows, metrics, meta)
+    grade_rows = [(row, grade_results[sku]) for sku, row in pm.items()]
+    write_report(out, results, compare_rows, validation_rows, metrics, meta, grade_rows)
 
     verdicts = sku_verdicts(compare_rows)
     return {
         'sku_count': len(results),
         'match_count_weighted': sum(1 for (b, _), st in verdicts.items() if b == '가중평균' and st == '일치'),
+        'grade_match_count': sum(1 for r, g in grade_rows if grade_verdict(r, g) == '일치'),
+        'grade_count': len(grade_rows),
         'out': out,
     }
