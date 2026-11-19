@@ -86,6 +86,16 @@ def header_map(ws, row: int) -> dict[str, int]:
     return result
 
 
+def header_cols(ws, row: int) -> dict[str, list[int]]:
+    """정규화한 제목 -> 그 제목이 나오는 모든 열 번호(왼쪽부터)."""
+    result: dict[str, list[int]] = {}
+    for cell in ws[row]:
+        key = norm_header(cell.value)
+        if key:
+            result.setdefault(key, []).append(cell.column)
+    return result
+
+
 def require_cols(hmap: dict[str, int], names: list[str], sheet: str) -> list[int]:
     """names에 해당하는 열 번호를 순서대로 돌려준다. 없는 열이 있으면 InputError."""
     missing = [n for n in names if norm_header(n) not in hmap]

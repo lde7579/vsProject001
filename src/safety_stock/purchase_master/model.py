@@ -20,7 +20,7 @@ def z_for_grade(grade: str | None) -> float | None:
 
 @dataclass(frozen=True)
 class PurchaseMasterRow:
-    """구매마스터 한 SKU의 행."""
+    """구매마스터 한 SKU의 행. grade는 엑셀에 적힌 재고등급이다(자동 산출 등급이 아님)."""
     sku: str
     group: str | None
     name: str | None
@@ -29,3 +29,18 @@ class PurchaseMasterRow:
     weight_fcst: float | None
     lead_time_days: float | None
     current_ss_days: float | None
+    # 등급 산출 원재료
+    price: float | None = None
+    begin_stock: float | None = None
+    end_stock: float | None = None
+    fcst_qty: float | None = None
+    # 입력 등급
+    lt_grade: str | None = None
+    quality_grade: str | None = None
+    # 엑셀에 적힌 값(대조용)
+    excel_price_grade: str | None = None
+    excel_turnover_grade: str | None = None
+    excel_turnover: float | None = None
+    excel_total: float | None = None
+    # 시트 행 번호
+    sheet_row: int | None = None

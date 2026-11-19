@@ -4,6 +4,7 @@ from safety_stock.common.xlsx import (
     InputError,
     find_header_row,
     find_sheet,
+    header_cols,
     header_map,
     norm_header,
     norm_sku,
@@ -47,3 +48,8 @@ def test_find_header_row_skips_description_rows(make_wb):
     assert header_map(ws, 6)['SKU'] == 2
     with pytest.raises(InputError, match='재고등급'):
         require_cols(header_map(ws, 6), ['SKU', '재고등급'], 's')
+
+
+def test_header_cols_lists_duplicates(make_wb):
+    wb = make_wb({'s': [['단가', '회전율', ' 단가', '회전율', '회전 율']]})
+    assert header_cols(wb['s'], 1) == {'단가': [1, 3], '회전율': [2, 4, 5]}
