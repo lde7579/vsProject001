@@ -111,3 +111,25 @@ def test_choose_small_group_own_wape_all_none_keeps_current():
     # 작은 그룹(n<5)이고 자기 WAPE가 모두 None이면 전체 값이 있어도 현재유지
     spec = {'전체': (9, {**FLAT, 0.6: 0.1}), 'S': (2, {})}
     assert choose(_table(spec), {'S': 0.7}) == [Choice('S', 2, 0.7, 0.7, '현재유지')]
+
+
+def test_with_weights_skips_rows_without_weights():
+    pm = {'x': _pm('x', 'G', 0.7), 'y': PurchaseMasterRow(sku='y', group='G', name=None, grade='A',
+                                                           weight_actual=None, weight_fcst=None,
+                                                           lead_time_days=14, current_ss_days=30)}
+    out = with_weights(pm, {'G': 0.2})
+    assert out['x'].weight_actual == 0.2 and out['y'] == pm['y']
+
+
+def test_current_and_searched_use_same_sku_set(tmp_path, make_books):
+    import openpyxl
+    base, actual = make_books(tmp_path)
+    wb = openpyxl.load_workbook(base)
+    ws = wb['W30 구매마스터']
+    ws['E3'], ws['F3'] = None, None  # BBB 가중치 없음
+    wb.save(base)
+    res = run_search(base, actual, CalcSettings(), range(35, 39), range(39, 44), range(35, 44))
+
+    def n(key):
+        return next(m.n_demand for m in res.metrics[key] if m.scope == '전체' and m.basis == '가중평균')
+    assert n(('검증', '현재')) == n(('검증', '탐색')) == 1

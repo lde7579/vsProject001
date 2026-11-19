@@ -30,6 +30,7 @@ def _meta(base: Path, actual: Path, select: range, holdout: range, full: range) 
         '작은 그룹 규칙': f'선택 구간에서 수요오차가 있는 SKU가 {MIN_GROUP_SKUS}개 미만이면 모든 SKU를 합친 WAPE 최소 가중치(공통최적)',
         '현재유지': '그룹 또는 전체의 WAPE를 구할 수 없으면(실제 합 0 등) 현재 가중치를 유지',
         '재고등급': '계산 등급 사용(2단계)',
+        '검증비교 범위': "검증비교의 그룹 범위는 summarize의 '공통' 집합(세 산식 기준 모두 오차가 있는 SKU)을 그룹으로 거른 것이라, 선택가중치의 SKU 수와 다를 수 있다",
         '한계': '선택 구간 4주뿐이고 통계적 유의성 검정이 없다. 개선 주장은 검증 구간 수치로만 한다',
     }
 
@@ -66,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
         error = f"--holdout-weeks 형식이 잘못되었습니다: '{args.holdout_weeks}' (예: 39-43, 앞 주차 ≤ 뒤 주차)"
     elif holdout.start < select.stop:
         error = f'--holdout-weeks({args.holdout_weeks})는 --select-weeks({args.select_weeks}) 뒤여야 합니다(겹치면 선택 데이터가 검증에 섞임)'
+    elif select.start <= CalcSettings().actual_last_week:
+        error = (f'--select-weeks 시작({select.start})은 실적 마지막 주차({CalcSettings().actual_last_week})보다 '
+                 '뒤여야 합니다(선택 구간 실제 출고가 계산 입력에 섞임)')
     if error:
         print(f'입력 오류: {error}')
         return 2

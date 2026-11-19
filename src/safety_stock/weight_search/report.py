@@ -35,7 +35,7 @@ def write_search_report(path, result: SearchResult, meta: dict[str, str]) -> Non
     cols = [c for c in _SUMMARY_COLS if c[1] != 'basis']
     rows = [[period, m.scope, weight, m.basis, *[getattr(m, attr) for _, attr, _ in cols[1:]]]
             for (period, weight), metrics in result.metrics.items() for m in metrics
-            if m.basis in _SHOWN_BASES and m.scope != '공통']
+            if m.basis in _SHOWN_BASES and m.scope != '공통' and (m.n_demand or m.n_lt)]
     _write_table(sheets['검증비교'], ['구간', '범위', '가중치', '기준', *[h for h, _, _ in cols[1:]]], rows,
                  [None, None, None, None, *[f for _, _, f in cols[1:]]])
 

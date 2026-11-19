@@ -1,6 +1,6 @@
 """가상 보완본: 산식과 어긋난 칸만 산식 결과로 채워 새 통합문서를 만든다(발표용 가상 데이터).
 
-원본은 건드리지 않고, 바꾼 칸은 모두 '가상보완_내역' 시트에 남긴다.
+원본은 건드리지 않고, 바꾼 칸은 모두 '가상보완_내역' 시트에 남기고, 채우지 못한 칸은 '기록만'으로 구분한다.
 """
 import statistics
 from dataclasses import dataclass
@@ -21,6 +21,9 @@ from safety_stock.purchase_master.model import Z_BY_GRADE, PurchaseMasterRow, no
 
 LOG_SHEET = '가상보완_내역'
 GRADE_REASON = '재고등급 산식 재계산'
+# 채우지 않은 행인데 채운 행이 회전율 순위 배열에 들어가면서 달라진 등급 관련 칸의 사유
+POPULATION_REASON = '가상 재고로 회전율 순위 모집단 변경'
+KIND_CHANGED, KIND_RECORD_ONLY = '변경', '기록만'
 # 대조 기준 이름 -> Summary 시트 키워드
 SUMMARY_KEYWORDS = {'가중평균': 'Summary_가중평균', '실적기준': 'Summary_실적', 'FCST기준': 'Summary_FCST'}
 # 수식 검사 대상: 이 도구가 읽거나 쓰는 시트(이름에 포함된 말)
@@ -35,6 +38,11 @@ class Change:
     old: object
     new: object
     reason: str
+
+    @property
+    def kind(self) -> str:
+        """'변경'(칸 값을 바꿈) 또는 '기록만'(채우지 못해 사유만 남김, new=None)."""
+        return KIND_RECORD_ONLY if self.new is None else KIND_CHANGED
 
 
 def _median_turnover(rows: list[PurchaseMasterRow]) -> float | None:
@@ -73,11 +81,11 @@ def _set(ws, row: int, col: int, new, reason: str, changes: list[Change]) -> Non
     cell.value = new
 
 
-def _fill_stock(wb, rows: list[PurchaseMasterRow], changes: list[Change]) -> None:
-    """2단계: 회전율 분모 0인 행의 기초·기말재고를 가상 값으로."""
+def _fill_stock(wb, rows: list[PurchaseMasterRow], changes: list[Change]) -> set[str]:
+    """2단계: 회전율 분모 0인 행의 기초·기말재고를 가상 값으로. 채운 SKU 집합을 돌려준다."""
     gaps = fill_inventory_gaps(rows)
     if not gaps:
-        return
+        return set()
     ws = find_sheet(wb, '구매마스터')
     cols = master_columns(ws, find_header_row(ws, 'SKU'))
     median = _median_turnover(rows)
@@ -88,6 +96,7 @@ def _fill_stock(wb, rows: list[PurchaseMasterRow], changes: list[Change]) -> Non
         for key in ('begin_stock', 'end_stock'):
             if cols[key]:
                 _set(ws, by_sku[sku].sheet_row, cols[key], value, reason, changes)
+    return set(gaps)
 
 
 def _same(old, new) -> bool:
@@ -97,26 +106,34 @@ def _same(old, new) -> bool:
     return n is not None and abs(n - new) <= 1e-9
 
 
+def _grade_values(g: GradeResult) -> dict[str, object]:
+    return {
+        'excel_turnover': None if g.turnover is None else round(g.turnover, 4),
+        'price_grade': g.price_grade, 'turnover_grade': g.turnover_grade,
+        'price_score': g.scores[0] if g.scores else None, 'turnover_score': g.scores[1] if g.scores else None,
+        'lt_score': g.scores[2] if g.scores else None, 'quality_score': g.scores[3] if g.scores else None,
+        'total': g.total, 'grade': g.grade,
+    }
+
+
 def _write_grades(wb, rows: list[PurchaseMasterRow], grades: dict[str, GradeResult],
-                  changes: list[Change]) -> None:
-    """3단계: 계산 등급 관련 칸(H, R, S, V~Z, N) 중 계산값과 다른 칸만 쓴다. 등급을 못 구한 행은 건드리지 않는다."""
+                  before: dict[str, GradeResult], filled: set[str], changes: list[Change]) -> None:
+    """3단계: 계산 등급 관련 칸(H, R, S, V~Z, N) 중 계산값과 다른 칸만 쓴다. 등급을 못 구한 행은 건드리지 않는다.
+
+    채우지 않은 행의 칸이 재고를 채우기 전 계산값과 달라졌다면(회전율 순위 배열이 바뀐 탓) 사유를 따로 남긴다.
+    """
     ws = find_sheet(wb, '구매마스터')
     cols = master_columns(ws, find_header_row(ws, 'SKU'))
     for r in rows:
         g = grades[r.sku]
         if g.grade is None:
             continue
-        values = {
-            'excel_turnover': None if g.turnover is None else round(g.turnover, 4),
-            'price_grade': g.price_grade, 'turnover_grade': g.turnover_grade,
-            'price_score': g.scores[0], 'turnover_score': g.scores[1],
-            'lt_score': g.scores[2], 'quality_score': g.scores[3],
-            'total': g.total, 'grade': g.grade,
-        }
-        for key, new in values.items():
+        prev = _grade_values(before[r.sku])
+        for key, new in _grade_values(g).items():
             col = cols[key]
             if col and new is not None and not _same(ws.cell(row=r.sheet_row, column=col).value, new):
-                _set(ws, r.sheet_row, col, new, GRADE_REASON, changes)
+                moved = r.sku not in filled and (prev[key] is None or not _same(prev[key], new))
+                _set(ws, r.sheet_row, col, new, POPULATION_REASON if moved else GRADE_REASON, changes)
 
 
 def _sku_rows(ws, title_row: int, sku_col: int) -> dict[str, int]:
@@ -161,10 +178,10 @@ def _write_log(wb, changes: list[Change]) -> None:
     if LOG_SHEET in wb.sheetnames:
         del wb[LOG_SHEET]
     ws = wb.create_sheet(LOG_SHEET)
-    for c, h in enumerate(['시트', '셀', '원래 값', '새 값', '사유'], start=1):
+    for c, h in enumerate(['시트', '셀', '구분', '원래 값', '새 값', '사유'], start=1):
         ws.cell(row=1, column=c, value=h).font = Font(bold=True)
     for r, ch in enumerate(changes, start=2):
-        for c, v in enumerate([ch.sheet, ch.cell, ch.old, ch.new, ch.reason], start=1):
+        for c, v in enumerate([ch.sheet, ch.cell, ch.kind, ch.old, ch.new, ch.reason], start=1):
             ws.cell(row=r, column=c, value=v)
     ws.freeze_panes = 'A2'
 
@@ -176,15 +193,19 @@ def build_virtual(src: Path, out: Path, settings: CalcSettings = CalcSettings())
         wb = openpyxl.load_workbook(src)
     except FileNotFoundError:
         raise InputError(f'파일을 찾을 수 없습니다: {src}') from None
+    except Exception as e:  # 손상됐거나 xlsx가 아닌 파일
+        raise InputError(f'엑셀 파일을 열 수 없습니다: {src} ({e})') from e
     _check_source(wb, src, out)
     changes: list[Change] = []
 
-    _fill_stock(wb, list(load_purchase_master(wb).values()), changes)
+    before_rows = list(load_purchase_master(wb).values())
+    before = compute_grades(before_rows)  # 재고를 채우기 전 계산 등급(순위 모집단 변경 구분용)
+    filled = _fill_stock(wb, before_rows, changes)
 
     pm = load_purchase_master(wb)  # 재고를 채운 값으로 다시 읽기
     rows = list(pm.values())
     grades = compute_grades(rows)
-    _write_grades(wb, rows, grades, changes)
+    _write_grades(wb, rows, grades, before, filled, changes)
 
     weighted = load_summary(wb, 'Summary_가중평균', required=('correction',))
     summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),

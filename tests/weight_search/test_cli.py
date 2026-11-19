@@ -49,3 +49,10 @@ def test_cli_missing_file(tmp_path, capsys):
     missing = tmp_path / 'nope.xlsx'
     assert main([str(missing), '--actual', str(missing), '-o', str(tmp_path / 'o.xlsx')]) == 2
     assert '찾을 수 없습니다' in capsys.readouterr().out
+
+
+def test_cli_select_start_not_after_actual_last_week(tmp_path, make_books, capsys):
+    base, actual = make_books(tmp_path)
+    out = tmp_path / '탐색.xlsx'
+    assert main([str(base), '--actual', str(actual), '-o', str(out), '--select-weeks', '31-38']) == 2
+    assert '실적 마지막 주차' in capsys.readouterr().out and not out.exists()

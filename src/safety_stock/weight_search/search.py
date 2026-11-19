@@ -34,9 +34,13 @@ def current_weights(pm: dict[str, PurchaseMasterRow]) -> dict[str, float]:
 
 
 def with_weights(pm: dict[str, PurchaseMasterRow], weights: dict[str, float]) -> dict[str, PurchaseMasterRow]:
-    """weights에 있는 그룹의 행만 실적·FCST 가중치를 바꾼 사본."""
+    """weights에 있는 그룹 중 원래 가중치가 있는 행만 실적·FCST 가중치를 바꾼 사본.
+
+    원래 가중치가 비어 있던 행은 그대로 둬서 현재와 탐색이 같은 SKU 집합으로 계산되게 한다.
+    """
     return {sku: replace(r, weight_actual=weights[r.group], weight_fcst=round(1 - weights[r.group], 1))
-            if r.group in weights else r for sku, r in pm.items()}
+            if r.group in weights and r.weight_actual is not None and r.weight_fcst is not None else r
+            for sku, r in pm.items()}
 
 
 def group_wape(rows: list[ValidationRow]) -> dict[str, tuple[int, float | None]]:
@@ -115,7 +119,8 @@ def run_search(base: Path, actual: Path, settings: CalcSettings, select_weeks: r
     table: Table = {w: group_wape(validate(results(with_weights(pm, dict.fromkeys(current, w))),
                                            actual_sales, select_weeks)) for w in CANDIDATES}
     choices = choose(table, current)
-    variants = {'현재': results(pm), '탐색': results(with_weights(pm, {c.group: c.chosen for c in choices}))}
+    applied = {c.group: c.chosen for c in choices if c.method != '현재유지'}  # 현재유지 그룹은 원래 행 그대로
+    variants = {'현재': results(pm), '탐색': results(with_weights(pm, applied))}
     metrics = {(label, name): summarize(validate(res, actual_sales, weeks))
                for label, weeks in (('검증', holdout_weeks), ('전체구간', full_weeks))
                for name, res in variants.items()}

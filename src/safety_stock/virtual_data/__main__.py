@@ -18,7 +18,8 @@ def main(argv: list[str] | None = None) -> int:
     except InputError as e:
         print(f'입력 오류: {e}')
         return 2
-    print(f'바꾼 칸 수: {len(changes)}')
+    print(f'바꾼 칸 수: {sum(c.kind == "변경" for c in changes)}')
+    print(f'채우지 못하고 기록만 한 칸: {sum(c.kind == "기록만" for c in changes)}')
     print(f'결과 파일: {args.out}')
     return 0
 

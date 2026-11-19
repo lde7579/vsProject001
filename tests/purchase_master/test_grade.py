@@ -60,3 +60,9 @@ def test_grade_verdict():
               excel_turnover_grade='A', excel_total=24.0, grade='A')
     assert grade_verdict(rb, g['A']) == '불일치'
     assert grade_verdict(rows[1], g['B']) == '비교불가'
+
+
+def test_grade_verdict_ungradable_with_excel_grade_is_mismatch():
+    r = _row('A', price=None, lt='A', q='A', grade='A')
+    g = compute_grades([r, _row('B', price=1, lt='A', q='A')])['A']
+    assert g.grade is None and grade_verdict(r, g) == '불일치'
