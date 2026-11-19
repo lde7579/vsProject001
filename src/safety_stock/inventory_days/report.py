@@ -1,0 +1,184 @@
+"""결과 xlsx 작성과 전체 실행(run). 쓰기는 이 모듈에서만 한다."""
+from pathlib import Path
+
+import openpyxl
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+
+from safety_stock.common.xlsx import InputError
+from safety_stock.inventory_days.calc import BASES, CalcSettings, SkuResult, build_inputs, compute_sku
+from safety_stock.inventory_days.compare import CompareRow, compare_with_excel, sku_verdicts
+from safety_stock.inventory_days.loader import load_onhand, load_sales, load_summary
+from safety_stock.inventory_days.validate import (
+    VALIDATION_BASES,
+    SummaryMetric,
+    ValidationRow,
+    summarize,
+    validate,
+)
+from safety_stock.mp_simulation.loader import load_weekly_plan
+from safety_stock.purchase_master.loader import load_purchase_master
+from safety_stock.purchase_master.model import Z_BY_GRADE
+
+REPORT_SHEETS = ['산출결과', '엑셀대조', '검증_SKU', '검증요약', '적용기준']
+
+QTY, DAYS, PCT = '#,##0', '0.0', '0.0%'
+
+# 산출결과의 기준별 열: (제목, BasisResult 속성, 표시 형식)
+_BASIS_COLS = [
+    ('수요', 'demand_week', QTY), ('σ', 'sigma_week', QTY),
+    ('LT평균수요', 'lt_demand', QTY), ('LT수요편차', 'lt_sigma', QTY),
+    ('Z', 'z', '0.000'), ('안전재고', 'safety_stock', QTY), ('ROP', 'rop', QTY),
+    ('적정재고일수', 'target_days', DAYS), ('안전재고일수', 'ss_days', DAYS),
+    ('현재고일수', 'onhand_days', DAYS), ('발주', 'order', None),
+]
+_COMMON_COLS = [
+    ('SKU', lambda i, r: i.sku, None), ('품목그룹', lambda i, r: i.group, None),
+    ('품목명', lambda i, r: i.name, None), ('재고등급', lambda i, r: i.grade, None),
+    ('실적가중치', lambda i, r: i.weight_actual, '0.00'), ('FCST가중치', lambda i, r: i.weight_fcst, '0.00'),
+    ('리드타임(일)', lambda i, r: i.lead_time_days, DAYS), ('보정계수', lambda i, r: i.correction, '0.000'),
+    ('현재고', lambda i, r: i.onhand, QTY),
+    ('실적평균', lambda i, r: r.actual_mean, QTY), ('FCST평균', lambda i, r: r.fcst_mean, QTY),
+]
+_CHECK_COLS = [
+    ('목표재고량', 'target_qty', QTY), ('예측주수요', 'predicted_week', QTY),
+    ('수요오차', 'error_week', QTY), ('LT수요방어', 'covered', None),
+    ('실제기준재고일수', 'actual_days', DAYS), ('제외사유', 'excluded', None),
+]
+_SUMMARY_COLS = [
+    ('범위', 'scope', None), ('기준', 'basis', None), ('수요비교SKU수', 'n_demand', '0'),
+    ('WAPE', 'wape', PCT), ('편향', 'bias', PCT), ('LT검증SKU수', 'n_lt', '0'),
+    ('결품방어율', 'coverage', PCT), ('실제기준재고일수중앙값', 'median_actual_days', DAYS),
+]
+
+
+def _write_table(ws, headers, rows, formats):
+    """제목 1행 + 데이터 행. 첫 행 고정, 자동필터, 제목 굵게."""
+    for c, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=c, value=h).font = Font(bold=True)
+        ws.column_dimensions[get_column_letter(c)].width = max(10, len(str(h)) * 2 + 2)
+    for r, row in enumerate(rows, start=2):
+        for c, v in enumerate(row, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            fmt = formats[c - 1]
+            if fmt and isinstance(v, (int, float)) and not isinstance(v, bool):
+                cell.number_format = fmt
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = f'A1:{get_column_letter(len(headers))}{max(len(rows) + 1, 2)}'
+
+
+def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
+                 validation_rows: list[ValidationRow], metrics: list[SummaryMetric],
+                 meta: dict[str, str]) -> None:
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    sheets = {name: wb.create_sheet(name) for name in REPORT_SHEETS}
+
+    # 산출결과
+    headers = [c[0] for c in _COMMON_COLS]
+    formats = [c[2] for c in _COMMON_COLS]
+    for b in BASES:
+        headers += [f'{b}_{t}' for t, _, _ in _BASIS_COLS]
+        formats += [f for _, _, f in _BASIS_COLS]
+    headers += ['기존안전재고일수', '점검메모']
+    formats += [DAYS, None]
+    rows = []
+    for res in results:
+        inp = res.inputs
+        row = [get(inp, res) for _, get, _ in _COMMON_COLS]
+        for b in BASES:
+            row += [getattr(res.bases[b], attr) for _, attr, _ in _BASIS_COLS]
+        row += [inp.current_ss_days, ', '.join(res.memo)]
+        rows.append(row)
+    _write_table(sheets['산출결과'], headers, rows, formats)
+
+    # 엑셀대조: 필드별 행 + 그 SKU의 판정(일치/불일치/비교불가)
+    verdicts = sku_verdicts(compare_rows)
+    rows = [[r.sku, r.basis, r.field, r.calc, r.excel, r.diff, r.status, verdicts[(r.basis, r.sku)]]
+            for r in compare_rows]
+    _write_table(sheets['엑셀대조'],
+                 ['SKU', '기준', '필드', '계산값', '엑셀값', '차이', '상태', 'SKU판정'], rows,
+                 [None, None, None, '#,##0.00', '#,##0.00', '#,##0.00', None, None])
+
+    # 검증_SKU: 기준별로 채점 제외 사유도 함께
+    headers = ['SKU', '품목그룹', '리드타임(일)', '실제주평균', '실제LT수요', '메모']
+    formats = [None, None, DAYS, QTY, QTY, None]
+    for b in VALIDATION_BASES:
+        headers += [f'{b}_{t}' for t, _, _ in _CHECK_COLS]
+        formats += [f for _, _, f in _CHECK_COLS]
+    rows = []
+    for v in validation_rows:
+        row = [v.sku, v.group, v.lead_time_days, v.actual_week_avg, v.actual_lt_demand, v.memo]
+        for b in VALIDATION_BASES:
+            row += [getattr(v.checks[b], attr) for _, attr, _ in _CHECK_COLS]
+        rows.append(row)
+    _write_table(sheets['검증_SKU'], headers, rows, formats)
+
+    # 검증요약: 값이 None인 지표는 빈 칸
+    rows = [[getattr(m, attr) for _, attr, _ in _SUMMARY_COLS] for m in metrics]
+    _write_table(sheets['검증요약'], [h for h, _, _ in _SUMMARY_COLS], rows,
+                 [f for _, _, f in _SUMMARY_COLS])
+
+    # 적용기준
+    _write_table(sheets['적용기준'], ['항목', '내용'], [[k, v] for k, v in meta.items()], [None, None])
+    sheets['적용기준'].column_dimensions['A'].width = 24
+    sheets['적용기준'].column_dimensions['B'].width = 70
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
+def _open(path: Path):
+    try:
+        return openpyxl.load_workbook(path, data_only=True)
+    except FileNotFoundError:
+        raise InputError(f'파일을 찾을 수 없습니다: {path}') from None
+    except Exception as e:  # 손상됐거나 xlsx가 아닌 파일
+        raise InputError(f'엑셀 파일을 열 수 없습니다: {path} ({e})') from e
+
+
+def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_weeks: range) -> dict:
+    """기준 엑셀·실제 출고 엑셀을 읽어 계산·대조·검증하고 결과 xlsx를 쓴다."""
+    base, actual, out = Path(base), Path(actual), Path(out)
+    wb = _open(base)
+    actual_wb = _open(actual)
+
+    pm = load_purchase_master(wb)
+    sales = load_sales(wb)
+    fcst = load_weekly_plan(wb, 'SCM FCST')
+    onhand = load_onhand(wb)
+    weighted_summary = load_summary(wb, 'Summary_가중평균', required=('correction',))
+    corrections = {sku: row.get('correction') for sku, row in weighted_summary.items()}
+    summaries = {
+        '가중평균': weighted_summary,
+        '실적기준': load_summary(wb, 'Summary_실적'),
+        'FCST기준': load_summary(wb, 'Summary_FCST'),
+    }
+
+    results = [compute_sku(i) for i in build_inputs(pm, sales, fcst, onhand, corrections, settings)]
+    compare_rows = compare_with_excel(results, summaries)
+    validation_rows = validate(results, load_sales(actual_wb), validation_weeks)
+    metrics = summarize(validation_rows)
+
+    meta = {
+        '기준 파일': base.name,
+        '실제 출고 파일': actual.name,
+        '실적 주차': f'WK{settings.actual_first_week:02d}~WK{settings.actual_last_week:02d}',
+        'FCST 주 수': f'앞 {settings.fcst_weeks}주 ({fcst.sheet})',
+        '검증 주차': f'WK{validation_weeks.start:02d}~WK{validation_weeks.stop - 1:02d}',
+        'Z값': ', '.join(f'{g}={z}' for g, z in Z_BY_GRADE.items()),
+        '가중평균 수요': '실적평균×실적가중치 + FCST평균×FCST가중치',
+        '실적기준 수요': '실적평균×보정계수',
+        'FCST기준 수요': 'FCST평균×보정계수',
+        '안전재고': 'Z × σ × √(리드타임/7)',
+        'ROP': 'LT평균수요 + 안전재고',
+        '검증 원칙': '실제 출고는 검증에만 쓰고 계산 입력에는 쓰지 않는다',
+    }
+    write_report(out, results, compare_rows, validation_rows, metrics, meta)
+
+    verdicts = sku_verdicts(compare_rows)
+    return {
+        'sku_count': len(results),
+        'match_count_weighted': sum(1 for (b, _), st in verdicts.items() if b == '가중평균' and st == '일치'),
+        'out': out,
+    }
