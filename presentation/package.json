@@ -1,0 +1,13 @@
+{
+  "name": "presentation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "적정 재고일수 발표자료 생성 (data.json → out/발표_적정재고일수.pptx)",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "pptxgenjs": "^4.0.1"
+  }
+}

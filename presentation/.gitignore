@@ -1,0 +1,4 @@
+node_modules/
+__pycache__/
+# 업무 수치가 들어 있는 생성물(data/와 같은 이유로 제외). extract.py로 다시 만든다
+data.json
