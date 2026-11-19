@@ -30,6 +30,7 @@ SUMMARY_FIELDS: dict[str, str] = {
     'rop': 'ROP(재주문점)',
     'correction': '과소예측보정계수',
     'grade': '재고등급',
+    'z_coef': 'Z값계수',
 }
 _TEXT_FIELDS = {'group', 'grade'}
 
@@ -90,6 +91,21 @@ def load_onhand(wb) -> dict[str, float]:
     return result
 
 
+def summary_columns(ws) -> tuple[int, int, dict[str, int | None]]:
+    """Summary 시트의 (제목 행, SKU 열, 표준 키 -> 열). 없는 열은 None."""
+    title_row = find_header_row(ws, 'SKU')
+    hmap = header_map(ws, title_row)
+    (sku_col,) = require_cols(hmap, ['SKU'], ws.title)
+    cols: dict[str, int | None] = {
+        key: hmap.get(norm_header(title)) for key, title in SUMMARY_FIELDS.items()
+    }
+    # 평균수요 열: '평균수요'를 포함하고 'LT'로 시작하지 않는 첫 열(왼쪽부터)
+    cols['demand'] = next(
+        (c for k, c in hmap.items() if '평균수요' in k and not k.startswith('LT')), None
+    )
+    return title_row, sku_col, cols
+
+
 def load_summary(
     wb, sheet_keyword: str, required: tuple[str, ...] = ()
 ) -> dict[str, dict[str, float | str | None]]:
@@ -98,17 +114,7 @@ def load_summary(
     required에 든 표준 키(demand 포함)의 열이 없으면 InputError, 그 외 없는 열의 값은 None.
     """
     ws = find_sheet(wb, sheet_keyword)
-    title_row = find_header_row(ws, 'SKU')
-    hmap = header_map(ws, title_row)
-    (sku_col,) = require_cols(hmap, ['SKU'], ws.title)
-
-    cols: dict[str, int | None] = {
-        key: hmap.get(norm_header(title)) for key, title in SUMMARY_FIELDS.items()
-    }
-    # 평균수요 열: '평균수요'를 포함하고 'LT'로 시작하지 않는 첫 열(왼쪽부터)
-    cols['demand'] = next(
-        (c for k, c in hmap.items() if '평균수요' in k and not k.startswith('LT')), None
-    )
+    title_row, sku_col, cols = summary_columns(ws)
 
     missing = [
         SUMMARY_FIELDS.get(k, '평균수요') for k in required if cols.get(k) is None

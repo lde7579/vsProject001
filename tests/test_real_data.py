@@ -11,9 +11,11 @@ from safety_stock.inventory_days.validate import VALIDATION_BASES, summarize, va
 from safety_stock.mp_simulation.loader import load_weekly_plan
 from safety_stock.purchase_master.loader import load_purchase_master
 from safety_stock.purchase_master.grade import compute_grades, grade_verdict
+from safety_stock.virtual_data.build import build_virtual
 
 DATA = Path(__file__).resolve().parents[1] / 'data'
 BASE = DATA / Path('재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사.xlsx')
+SUPPLEMENT = DATA / '재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사_보완.xlsx'
 ACTUAL = DATA / Path('W44_가중평균수요_반영_상품_발주점검_업로드.xlsx')
 # 요청자 엑셀의 가중평균 시트에서 값이 실적기준 시트와 똑같은 SKU(ETCBID 3 + FLT 52). 엑셀이 이 품목군에 가중평균 대신 실적기준 값을 넣었다.
 COPIED_FROM_ACTUAL = {'ETCBID3000MF', 'ETCBID3200WH', 'ETCBID6000MF', 'FLTA15C1A1WH', 'FLTA15C1A3WH', 'FLTA15C2ARWH',
@@ -160,3 +162,28 @@ def test_metrics_unchanged_with_computed_grades(real_run):
     excel = metrics({s: row.grade for s, row in r.pm.items()})
     computed = metrics({s: g.grade for s, g in compute_grades(list(r.pm.values())).items()})
     assert excel == computed
+
+
+def test_virtual_supplement_real(tmp_path):
+    if not SUPPLEMENT.exists():
+        pytest.skip('보완본 파일이 없다')
+    out = tmp_path / 'v.xlsx'
+    changes = build_virtual(SUPPLEMENT, out)
+    assert any(c.reason.startswith('회전율 분모 0') for c in changes)
+    wb = openpyxl.load_workbook(out, data_only=True)
+    pm = load_purchase_master(wb)
+    grade_results = compute_grades(list(pm.values()))
+    assert len(pm) == 116
+    assert {grade_verdict(r, grade_results[r.sku]) for r in pm.values()} == {'일치'}
+    weighted = load_summary(wb, 'Summary_가중평균', required=('correction',))
+    summaries = {'가중평균': weighted, '실적기준': load_summary(wb, 'Summary_실적'),
+                 'FCST기준': load_summary(wb, 'Summary_FCST')}
+    corrections = {s: r.get('correction') for s, r in weighted.items()}
+    grades = {s: g.grade for s, g in grade_results.items()}
+    inputs = build_inputs(pm, load_sales(wb), load_weekly_plan(wb, 'SCM FCST'), load_onhand(wb),
+                          corrections, CalcSettings(), grades=grades)
+    rows = compare_with_excel([compute_sku(i) for i in inputs], summaries)
+    # 수요 0인 SKU는 일수 계산식이 0으로 나눠져 계산·엑셀 모두 빈 칸(엑셀값없음, 채울 값 자체가 없다)
+    assert {r.status for r in rows} <= {'일치', '계산값없음', '엑셀값없음'}
+    assert all(r.calc is None and r.field in ('target_days', 'ss_days') for r in rows if r.status == '엑셀값없음')
+    assert {r.sku for r in rows if r.status == '계산값없음'} == {'FLTACPP240WH', 'FLTACL140PWH'}
