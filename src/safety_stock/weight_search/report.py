@@ -29,8 +29,8 @@ def write_search_report(path, result: SearchResult, meta: dict[str, str]) -> Non
              chosen_wape(c.chosen, c.group)]
             for c in result.choices]
     write_table(sheets['선택가중치'],
-                 ['품목그룹', 'SKU수', '현재가중치', '선택가중치', '선택방식', '현재WAPE(선택구간)', '선택WAPE(선택구간)'],
-                 rows, [None, '0', '0.0', '0.0', None, PCT, PCT])
+                ['품목그룹', 'SKU수', '현재가중치', '선택가중치', '선택방식', '현재WAPE(선택구간)', '선택WAPE(선택구간)'],
+                rows, [None, '0', '0.0', '0.0', None, PCT, PCT])
 
     # 검증비교: 기준 가중평균·기존수기, 범위 전체와 그룹('공통' 제외)
     cols = [c for c in SUMMARY_COLS if c[1] != 'basis']

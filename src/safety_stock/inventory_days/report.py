@@ -135,16 +135,16 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
 
     # 재고등급: 구매마스터 행마다 계산 과정과 엑셀 값 대조
     write_table(sheets['재고등급'], [h for h, _, _ in _GRADE_COLS],
-                 [[get(r, g) for _, get, _ in _GRADE_COLS] for r, g in grade_rows],
-                 [f for _, _, f in _GRADE_COLS])
+                [[get(r, g) for _, get, _ in _GRADE_COLS] for r, g in grade_rows],
+                [f for _, _, f in _GRADE_COLS])
 
     # 엑셀대조: 필드별 행 + 그 SKU의 판정(일치/불일치/비교불가)
     verdicts = sku_verdicts(compare_rows)
     rows = [[r.sku, r.basis, FIELD_LABELS.get(r.field, r.field), r.calc, r.excel, r.diff, r.status, verdicts[(r.basis, r.sku)]]
             for r in compare_rows]
     write_table(sheets['엑셀대조'],
-                 ['SKU', '기준', '필드', '계산값', '엑셀값', '차이', '상태', 'SKU판정'], rows,
-                 [None, None, None, '#,##0.00', '#,##0.00', '#,##0.00', None, None])
+                ['SKU', '기준', '필드', '계산값', '엑셀값', '차이', '상태', 'SKU판정'], rows,
+                [None, None, None, '#,##0.00', '#,##0.00', '#,##0.00', None, None])
 
     # 검증_SKU: 기준별로 채점 제외 사유도 함께
     headers = ['SKU', '품목그룹', '리드타임(일)', '실제주평균', '실제LT수요', '메모']
@@ -165,7 +165,7 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
     # 검증요약: 값이 None인 지표는 빈 칸
     rows = [[getattr(m, attr) for _, attr, _ in SUMMARY_COLS] for m in metrics]
     write_table(sheets['검증요약'], [h for h, _, _ in SUMMARY_COLS], rows,
-                 [f for _, _, f in SUMMARY_COLS])
+                [f for _, _, f in SUMMARY_COLS])
 
     # 적용기준
     write_table(sheets['적용기준'], ['항목', '내용'], [[k, v] for k, v in meta.items()], [None, None])

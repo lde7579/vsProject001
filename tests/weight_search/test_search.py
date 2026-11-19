@@ -1,8 +1,10 @@
+import openpyxl
 import pytest
 
 from safety_stock.inventory_days.calc import CalcSettings
 from safety_stock.inventory_days.validate import BasisCheck, ValidationRow
 from safety_stock.purchase_master.model import PurchaseMasterRow
+from safety_stock.weight_search.report import write_search_report
 from safety_stock.weight_search.search import (
     CANDIDATES, MIN_GROUP_SKUS, Choice, choose, current_weights, group_wape, run_search, with_weights,
 )
@@ -122,7 +124,6 @@ def test_with_weights_skips_rows_without_weights():
 
 
 def test_current_and_searched_use_same_sku_set(tmp_path, make_books):
-    import openpyxl
     base, actual = make_books(tmp_path)
     wb = openpyxl.load_workbook(base)
     ws = wb['W30 구매마스터']
@@ -136,8 +137,6 @@ def test_current_and_searched_use_same_sku_set(tmp_path, make_books):
 
 
 def test_current_wape_filled_when_current_not_a_candidate(tmp_path, make_books):
-    import openpyxl
-    from safety_stock.weight_search.report import write_search_report
     base, actual = make_books(tmp_path)
     wb = openpyxl.load_workbook(base)
     ws = wb['W30 구매마스터']

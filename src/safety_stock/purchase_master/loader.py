@@ -21,13 +21,18 @@ _COLUMN_SPEC = {
     'turnover_score': ('회전율', 2),
 }
 
+# 등급 열·점수 열(회전율은 값도 포함) 때문에 제목별로 필요한 최소 등장 횟수
+_MIN_OCCURRENCES = {'단가': 2, '회전율': 3, '리드타임': 2, '품질이슈': 2}
+
 
 def master_columns(ws, hrow: int) -> dict[str, int | None]:
     """제목과 등장 순서로 구매마스터의 열 번호를 정한다. 없으면 None."""
     found = header_cols(ws, hrow)
-    # 등급 열(R~U)과 점수 열(V~Y)이 모두 있어야 첫 번째 등장을 등급, 두 번째를 점수로 읽을 수 있다
-    if any(len(found.get(norm_header(t), [])) < 2 for t in ('리드타임', '품질이슈')):
-        raise InputError(f"시트 '{ws.title}': 등급 열(단가·회전율·리드타임·품질이슈)과 점수 열이 모두 있어야 합니다")
+    # 등급 열(R~U)과 점수 열(V~Y)이 모두 있어야 첫 번째 등장을 등급, 그다음을 점수로 읽을 수 있다
+    short = [t for t, n in _MIN_OCCURRENCES.items() if len(found.get(norm_header(t), [])) < n]
+    if short:
+        raise InputError(f"시트 '{ws.title}': 등급 열(단가·회전율·리드타임·품질이슈)과 점수 열이 모두 있어야 합니다"
+                         f"(부족한 제목: {', '.join(short)})")
     result: dict[str, int | None] = {}
     for key, (title, nth) in _COLUMN_SPEC.items():
         cols = found.get(norm_header(title), [])
