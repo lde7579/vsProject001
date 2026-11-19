@@ -1,0 +1,3 @@
+# 줄바꿈 문자를 LF로 통일해 diff 노이즈를 줄인다
+* text=auto eol=lf
+*.xlsx binary
