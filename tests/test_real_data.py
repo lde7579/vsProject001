@@ -11,8 +11,9 @@ from safety_stock.inventory_days.validate import VALIDATION_BASES, summarize, va
 from safety_stock.mp_simulation.loader import load_weekly_plan
 from safety_stock.purchase_master.loader import load_purchase_master
 
-BASE = Path('data/재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사.xlsx')
-ACTUAL = Path('data/W44_가중평균수요_반영_상품_발주점검_업로드.xlsx')
+DATA = Path(__file__).resolve().parents[1] / 'data'
+BASE = DATA / Path('재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사.xlsx')
+ACTUAL = DATA / Path('W44_가중평균수요_반영_상품_발주점검_업로드.xlsx')
 # 요청자 엑셀의 가중평균 시트에서 값이 실적기준 시트와 똑같은 SKU(ETCBID 3 + FLT 52). 엑셀이 이 품목군에 가중평균 대신 실적기준 값을 넣었다.
 COPIED_FROM_ACTUAL = {'ETCBID3000MF', 'ETCBID3200WH', 'ETCBID6000MF', 'FLTA15C1A1WH', 'FLTA15C1A3WH', 'FLTA15C2ARWH',
     'FLTA15C2ATWH', 'FLTA16C1A1BL', 'FLTA16C1A3BL', 'FLTA16C1ARZG', 'FLTA16C1ATZG', 'FLTA19P1A4WH', 'FLTA20C1A1WH',

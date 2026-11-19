@@ -24,6 +24,14 @@ REPORT_SHEETS = ['산출결과', '엑셀대조', '검증_SKU', '검증요약', '
 
 QTY, DAYS, PCT = '#,##0', '0.0', '0.0%'
 
+# 표시 단계에서만 쓰는 한국어 이름·라벨
+FIELD_LABELS = {
+    'demand': '수요', 'sigma': 'σ', 'lt_demand': 'LT평균수요', 'lt_sigma': 'LT수요편차',
+    'ss': '안전재고', 'rop': 'ROP', 'target_days': '적정재고일수', 'ss_days': '안전재고일수',
+}
+ORDER_LABELS = {'ORDER': '발주필요', 'OK': '정상'}
+COVER_LABELS = {True: '방어', False: '결품'}
+
 # 산출결과의 기준별 열: (제목, BasisResult 속성, 표시 형식)
 _BASIS_COLS = [
     ('수요', 'demand_week', QTY), ('σ', 'sigma_week', QTY),
@@ -87,14 +95,16 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
         inp = res.inputs
         row = [get(inp, res) for _, get, _ in _COMMON_COLS]
         for b in BASES:
-            row += [getattr(res.bases[b], attr) for _, attr, _ in _BASIS_COLS]
+            for _, attr, _ in _BASIS_COLS:
+                v = getattr(res.bases[b], attr)
+                row.append(ORDER_LABELS.get(v, v) if attr == 'order' else v)
         row += [inp.current_ss_days, ', '.join(res.memo)]
         rows.append(row)
     _write_table(sheets['산출결과'], headers, rows, formats)
 
     # 엑셀대조: 필드별 행 + 그 SKU의 판정(일치/불일치/비교불가)
     verdicts = sku_verdicts(compare_rows)
-    rows = [[r.sku, r.basis, r.field, r.calc, r.excel, r.diff, r.status, verdicts[(r.basis, r.sku)]]
+    rows = [[r.sku, r.basis, FIELD_LABELS.get(r.field, r.field), r.calc, r.excel, r.diff, r.status, verdicts[(r.basis, r.sku)]]
             for r in compare_rows]
     _write_table(sheets['엑셀대조'],
                  ['SKU', '기준', '필드', '계산값', '엑셀값', '차이', '상태', 'SKU판정'], rows,
@@ -110,7 +120,9 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
     for v in validation_rows:
         row = [v.sku, v.group, v.lead_time_days, v.actual_week_avg, v.actual_lt_demand, v.memo]
         for b in VALIDATION_BASES:
-            row += [getattr(v.checks[b], attr) for _, attr, _ in _CHECK_COLS]
+            for _, attr, _ in _CHECK_COLS:
+                val = getattr(v.checks[b], attr)
+                row.append(COVER_LABELS.get(val, val) if attr == 'covered' else val)
         rows.append(row)
     _write_table(sheets['검증_SKU'], headers, rows, formats)
 
@@ -125,7 +137,10 @@ def write_report(path, results: list[SkuResult], compare_rows: list[CompareRow],
     sheets['적용기준'].column_dimensions['B'].width = 70
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    wb.save(path)
+    try:
+        wb.save(path)
+    except PermissionError:
+        raise InputError(f'결과 파일을 저장할 수 없습니다(엑셀에서 열려 있으면 닫고 다시 실행): {path}') from None
 
 
 def _open(path: Path):
@@ -140,6 +155,9 @@ def _open(path: Path):
 def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_weeks: range) -> dict:
     """기준 엑셀·실제 출고 엑셀을 읽어 계산·대조·검증하고 결과 xlsx를 쓴다."""
     base, actual, out = Path(base), Path(actual), Path(out)
+    for src in (base, actual):
+        if out.resolve() == src.resolve():
+            raise InputError(f'결과 파일 경로가 입력 파일과 같습니다: {out}')
     wb = _open(base)
     actual_wb = _open(actual)
 
@@ -167,11 +185,15 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
         'FCST 주 수': f'앞 {settings.fcst_weeks}주 ({fcst.sheet})',
         '검증 주차': f'WK{validation_weeks.start:02d}~WK{validation_weeks.stop - 1:02d}',
         'Z값': ', '.join(f'{g}={z}' for g, z in Z_BY_GRADE.items()),
+        '평균·σ 정의': '평균은 AVERAGE, σ는 STDEV.P(모표준편차). 실적 빈 칸은 제외하고 계산, FCST 빈 칸은 0으로 보고 주 수 전체로 계산',
         '가중평균 수요': '실적평균×실적가중치 + FCST평균×FCST가중치',
+        '가중평균 σ': '실적σ×실적가중치 + FCSTσ×FCST가중치',
         '실적기준 수요': '실적평균×보정계수',
         'FCST기준 수요': 'FCST평균×보정계수',
         '안전재고': 'Z × σ × √(리드타임/7)',
         'ROP': 'LT평균수요 + 안전재고',
+        '일수 계산': '적정재고일수·안전재고일수·현재고일수 = 값 ÷ (주수요/7)',
+        '발주 규칙': '현재고 ≤ ROP이면 발주필요, 아니면 정상',
         '검증 원칙': '실제 출고는 검증에만 쓰고 계산 입력에는 쓰지 않는다',
     }
     write_report(out, results, compare_rows, validation_rows, metrics, meta)

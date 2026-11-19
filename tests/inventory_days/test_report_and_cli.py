@@ -8,7 +8,7 @@ from safety_stock.inventory_days.report import REPORT_SHEETS
 @pytest.fixture
 def minimal_books(make_wb):
     """기준 엑셀과 실제 출고 엑셀을 임시 폴더에 저장하는 함수."""
-    def build(tmp_path):
+    def build(tmp_path, actual_qty=20, tag=''):
         weeks = [f'WK{n:02d}' for n in range(1, 32)]
         fcst_labels = [f'W{n}(08/24)' for n in range(35, 48)]
         summary_head = ['SKU', '평균수요', '과소예측보정계수']
@@ -26,8 +26,8 @@ def minimal_books(make_wb):
             'Summary_FCST기준': [summary_head, ['AAA', 1, 1.2]],
         })
         actual = make_wb({'출고실적': [['SKU', *[f'WK{n}' for n in range(35, 44)]],
-                                   ['AAA', *([20] * 9)], ['BBB', *([5] * 9)]]})
-        base_path, actual_path = tmp_path / 'base.xlsx', tmp_path / 'actual.xlsx'
+                                   ['AAA', *([actual_qty] * 9)], ['BBB', *([5] * 9)]]})
+        base_path, actual_path = tmp_path / f'base{tag}.xlsx', tmp_path / f'actual{tag}.xlsx'
         base.save(base_path)
         actual.save(actual_path)
         return base_path, actual_path
@@ -64,3 +64,87 @@ def test_cli_missing_file_exit_code(tmp_path, capsys):
     missing = tmp_path / 'nope.xlsx'
     assert main([str(missing), '--actual', str(missing), '-o', str(tmp_path / 'o.xlsx')]) == 2
     assert '찾을 수 없습니다' in capsys.readouterr().out
+
+
+def _run(tmp_path, minimal_books, **kw):
+    base, actual = minimal_books(tmp_path, **kw)
+    out = tmp_path / f"out{kw.get('tag', '')}.xlsx"
+    assert main([str(base), '--actual', str(actual), '-o', str(out)]) == 0
+    return openpyxl.load_workbook(out, data_only=True)
+
+
+def _col(ws, title):
+    head = [c.value for c in ws[1]]
+    return head.index(title) + 1
+
+
+def test_report_values_and_formats(tmp_path, minimal_books):
+    wb = _run(tmp_path, minimal_books)
+    ws = wb['산출결과']
+    # AAA: 실적 10..40 평균 25, FCST 20 -> 25*0.7 + 20*0.3 = 23.5
+    cell = ws.cell(row=2, column=_col(ws, '가중평균_수요'))
+    assert cell.value == pytest.approx(23.5) and cell.number_format == '#,##0'
+    assert ws.cell(row=2, column=_col(ws, '가중평균_적정재고일수')).number_format == '0.0'
+    summary = wb['검증요약']
+    wape_col = _col(summary, 'WAPE')
+    rows = {(r[0].value, r[1].value): r for r in summary.iter_rows(min_row=2)}
+    assert rows[('전체', '가중평균')][wape_col - 1].number_format == '0.0%'
+    # AAA 예측 23.5, 실제 20 -> WAPE 17.5%
+    assert rows[('전체', '가중평균')][wape_col - 1].value == pytest.approx(0.175)
+    # 기존수기는 예측 수요가 없어 WAPE가 빈 칸
+    assert rows[('전체', '기존수기')][wape_col - 1].value is None
+
+
+def test_all_sheets_freeze_and_filter(tmp_path, minimal_books):
+    wb = _run(tmp_path, minimal_books)
+    for ws in wb:
+        assert ws.freeze_panes == 'A2', ws.title
+        assert ws.auto_filter.ref, ws.title
+
+
+def test_actual_file_does_not_change_calculation(tmp_path, minimal_books):
+    a = _run(tmp_path, minimal_books, actual_qty=20, tag='1')
+    b = _run(tmp_path, minimal_books, actual_qty=999, tag='2')
+    for name in ('산출결과', '엑셀대조'):
+        va = [[c.value for c in r] for r in a[name].iter_rows()]
+        vb = [[c.value for c in r] for r in b[name].iter_rows()]
+        assert va == vb, name
+    assert [[c.value for c in r] for r in a['검증요약'].iter_rows()] !=         [[c.value for c in r] for r in b['검증요약'].iter_rows()]
+
+
+def test_display_labels(tmp_path, minimal_books):
+    wb = _run(tmp_path, minimal_books)
+    fields = {r[2].value for r in wb['엑셀대조'].iter_rows(min_row=2)}
+    assert fields <= {'수요', 'σ', 'LT평균수요', 'LT수요편차', '안전재고', 'ROP', '적정재고일수', '안전재고일수'}
+    assert '수요' in fields
+    ws = wb['산출결과']
+    orders = {ws.cell(row=r, column=_col(ws, '가중평균_발주')).value for r in range(2, ws.max_row + 1)}
+    assert orders <= {'발주필요', '정상', None} and orders & {'발주필요', '정상'}
+    vs = wb['검증_SKU']
+    col = _col(vs, '가중평균_LT수요방어')
+    assert {vs.cell(row=r, column=col).value for r in range(2, vs.max_row + 1)} <= {'방어', '결품', None}
+    assert vs.cell(row=2, column=col).value == '방어'
+
+
+def test_meta_has_formulas(tmp_path, minimal_books):
+    wb = _run(tmp_path, minimal_books)
+    text = ' '.join(f'{r[0].value} {r[1].value}' for r in wb['적용기준'].iter_rows(min_row=2))
+    for word in ('STDEV.P', '빈 칸', '발주', '주수요/7'):
+        assert word in text
+
+
+def test_output_same_as_input_rejected(tmp_path, minimal_books, capsys):
+    base, actual = minimal_books(tmp_path)
+    assert main([str(base), '--actual', str(actual), '-o', str(actual)]) == 2
+    assert '같' in capsys.readouterr().out
+    assert actual.exists() and openpyxl.load_workbook(actual).sheetnames == ['출고실적']
+
+
+def test_save_permission_error(tmp_path, minimal_books, capsys, monkeypatch):
+    base, actual = minimal_books(tmp_path)
+
+    def boom(self, filename):
+        raise PermissionError(filename)
+    monkeypatch.setattr(openpyxl.Workbook, 'save', boom)
+    assert main([str(base), '--actual', str(actual), '-o', str(tmp_path / 'o.xlsx')]) == 2
+    assert '저장' in capsys.readouterr().out
