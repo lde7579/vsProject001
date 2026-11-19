@@ -148,3 +148,48 @@ def test_save_permission_error(tmp_path, minimal_books, capsys, monkeypatch):
     monkeypatch.setattr(openpyxl.Workbook, 'save', boom)
     assert main([str(base), '--actual', str(actual), '-o', str(tmp_path / 'o.xlsx')]) == 2
     assert '저장' in capsys.readouterr().out
+
+
+def test_sigma_formats_show_one_decimal(tmp_path, minimal_books):
+    ws = _run(tmp_path, minimal_books)['산출결과']
+    for b in ('가중평균', '실적기준', 'FCST기준'):
+        for t in ('σ', 'LT수요편차'):
+            assert ws.cell(row=2, column=_col(ws, f'{b}_{t}')).number_format == '#,##0.0', (b, t)
+
+
+def test_error_share_column(tmp_path, minimal_books):
+    ws = _run(tmp_path, minimal_books)['검증_SKU']
+    col = _col(ws, '가중평균_오차기여율')
+    assert _col(ws, '가중평균_수요오차') + 1 == col
+    # BBB는 FCST가 없어 가중평균 채점 제외 → AAA가 오차 전부
+    cell = ws.cell(row=2, column=col)
+    assert ws.cell(row=2, column=1).value == 'AAA' and cell.value == pytest.approx(1.0)
+    assert cell.number_format == '0.0%' and ws.cell(row=3, column=col).value is None
+    assert ws.cell(row=2, column=_col(ws, '기존수기_오차기여율')).value is None
+
+
+def test_meta_has_review_items(tmp_path, minimal_books):
+    wb = _run(tmp_path, minimal_books)
+    meta = {r[0].value: str(r[1].value) for r in wb['적용기준'].iter_rows(min_row=2)}
+    assert {'실행 시각', '대조 허용오차', '범위 정의', '기존수기 목표재고량', '결품 방어', '검증 대상 SKU'} <= set(meta)
+    assert '0.5%' in meta['대조 허용오차'] and '±0.5' in meta['대조 허용오차']
+    assert all(w in meta['범위 정의'] for w in ("'전체'", "'공통'", '품목그룹'))
+    assert '가중평균 일평균수요' in meta['기존수기 목표재고량'] and '63일' in meta['결품 방어']
+    assert 'W35(08/24)~W47(08/24)' in meta['FCST 주 수']
+    assert '두 파일' in meta['검증 대상 SKU'] and '계산대상없음' in meta['검증 대상 SKU']
+
+
+@pytest.mark.parametrize('extra, word', [
+    (['--fcst-weeks', '0'], '--fcst-weeks'),
+    (['--actual-last-week', '35'], '--actual-last-week'),
+    (['--validation-weeks', '43-35'], '--validation-weeks'),
+    (['--validation-weeks', 'abc'], '--validation-weeks'),
+])
+def test_cli_argument_checks(tmp_path, minimal_books, capsys, extra, word):
+    # 실제로 실행 가능한 파일을 줘서, 검사가 없으면 0으로 끝나는 상황에서 2가 나오는지 본다
+    base, actual = minimal_books(tmp_path)
+    out = tmp_path / 'o.xlsx'
+    assert main([str(base), '--actual', str(actual), '-o', str(out), *extra]) == 2
+    text = capsys.readouterr().out
+    assert '입력 오류' in text and word in text
+    assert not out.exists()

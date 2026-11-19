@@ -1,4 +1,5 @@
 """결과 xlsx 작성과 전체 실행(run). 쓰기는 이 모듈에서만 한다."""
+from datetime import datetime
 from pathlib import Path
 
 import openpyxl
@@ -6,7 +7,14 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from safety_stock.common.xlsx import InputError
-from safety_stock.inventory_days.calc import BASES, CalcSettings, SkuResult, build_inputs, compute_sku
+from safety_stock.inventory_days.calc import (
+    BASES,
+    CORRECTION_MAX,
+    CalcSettings,
+    SkuResult,
+    build_inputs,
+    compute_sku,
+)
 from safety_stock.inventory_days.compare import CompareRow, compare_with_excel, sku_verdicts
 from safety_stock.inventory_days.loader import load_onhand, load_sales, load_summary
 from safety_stock.inventory_days.validate import (
@@ -23,6 +31,7 @@ from safety_stock.purchase_master.model import Z_BY_GRADE
 REPORT_SHEETS = ['산출결과', '엑셀대조', '검증_SKU', '검증요약', '적용기준']
 
 QTY, DAYS, PCT = '#,##0', '0.0', '0.0%'
+SIGMA = '#,##0.0'  # σ류는 작은 값이 0으로 보이지 않도록 소수 1자리
 
 # 표시 단계에서만 쓰는 한국어 이름·라벨
 FIELD_LABELS = {
@@ -35,8 +44,8 @@ COVER_LABELS = {True: '방어', False: '결품'}
 
 # 산출결과의 기준별 열: (제목, BasisResult 속성, 표시 형식)
 _BASIS_COLS = [
-    ('수요', 'demand_week', QTY), ('σ', 'sigma_week', QTY),
-    ('LT평균수요', 'lt_demand', QTY), ('LT수요편차', 'lt_sigma', QTY),
+    ('수요', 'demand_week', QTY), ('σ', 'sigma_week', SIGMA),
+    ('LT평균수요', 'lt_demand', QTY), ('LT수요편차', 'lt_sigma', SIGMA),
     ('Z', 'z', '0.000'), ('안전재고', 'safety_stock', QTY), ('ROP', 'rop', QTY),
     ('적정재고일수', 'target_days', DAYS), ('안전재고일수', 'ss_days', DAYS),
     ('현재고일수', 'onhand_days', DAYS), ('발주', 'order', None),
@@ -51,7 +60,7 @@ _COMMON_COLS = [
 ]
 _CHECK_COLS = [
     ('목표재고량', 'target_qty', QTY), ('예측주수요', 'predicted_week', QTY),
-    ('수요오차', 'error_week', QTY), ('LT수요방어', 'covered', None),
+    ('수요오차', 'error_week', QTY), ('오차기여율', 'error_share', PCT), ('LT수요방어', 'covered', None),
     ('실제기준재고일수', 'actual_days', DAYS), ('제외사유', 'excluded', None),
 ]
 _SUMMARY_COLS = [
@@ -179,11 +188,14 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
     validation_rows = validate(results, load_sales(actual_wb), validation_weeks)
     metrics = summarize(validation_rows)
 
+    used_labels = fcst.week_labels[:max(settings.fcst_weeks, 0)]
+    fcst_range = f'{used_labels[0]}~{used_labels[-1]}' if used_labels else '주차 없음'
     meta = {
+        '실행 시각': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         '기준 파일': base.name,
         '실제 출고 파일': actual.name,
         '실적 주차': f'WK{settings.actual_first_week:02d}~WK{settings.actual_last_week:02d}',
-        'FCST 주 수': f'앞 {settings.fcst_weeks}주 ({fcst.sheet})',
+        'FCST 주 수': f'앞 {settings.fcst_weeks}주 {fcst_range} ({fcst.sheet})',
         '검증 주차': f'WK{validation_weeks.start:02d}~WK{validation_weeks.stop - 1:02d}',
         'Z값': ', '.join(f'{g}={z}' for g, z in Z_BY_GRADE.items()),
         '평균·σ 정의': '평균은 AVERAGE, σ는 STDEV.P(모표준편차). 실적 빈 칸은 제외하고 계산, FCST 빈 칸은 0으로 보고 주 수 전체로 계산',
@@ -195,7 +207,21 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
         'ROP': 'LT평균수요 + 안전재고',
         '일수 계산': '적정재고일수·안전재고일수·현재고일수 = 값 ÷ (주수요/7)',
         '발주 규칙': '현재고 ≤ ROP이면 발주필요, 아니면 정상',
+        '대조 항목': '수요, σ, LT평균수요, LT수요편차, 안전재고, ROP, 적정재고일수, 안전재고일수, 현재고'
+                 '(현재고는 기준과 무관한 값이라 세 기준 행 모두에 같은 비교가 들어간다)',
+        '대조 허용오차': '엑셀 표시 자릿수 반올림 ±0.5단위 + 엑셀값의 0.5%(보정계수·가중치 반올림 여유)',
+        '보정계수 이상': f'보정계수가 0이거나 {CORRECTION_MAX:g}보다 크면 점검메모 보정계수이상(계산은 그대로)',
         '검증 원칙': '실제 출고는 검증에만 쓰고 계산 입력에는 쓰지 않는다',
+        '검증 대상 SKU': '기준 파일과 실제 출고 파일 두 파일에 모두 있는 SKU. '
+                     '실제 파일에 없으면 메모 실적파일없음, 실제 파일에만 있으면 메모 계산대상없음(채점 안 함)',
+        '기존수기 목표재고량': '기존 안전재고 값(일) × 가중평균 일평균수요(가중평균 주수요/7)',
+        '산식 기준 목표재고량': 'ROP',
+        '결품 방어': f'목표재고량 ≥ 실제 LT 구간 수요이면 방어. 리드타임 {7 * len(validation_weeks)}일'
+                 '(검증 구간) 이하 SKU만',
+        '오차기여율': '|수요오차| ÷ 그 기준 전체 Σ|수요오차| (범위: 전체)',
+        '범위 정의': "'전체'=기준별로 채점 가능한 SKU 모두(기준마다 SKU 수가 다를 수 있음). "
+                 "'공통'=수요 지표는 세 산식 기준 모두 수요오차가 있는 SKU, LT 지표는 네 기준 모두 방어 여부가 있는 SKU. "
+                 "품목그룹=공통 범위의 SKU를 그 그룹으로 거른 것",
     }
     write_report(out, results, compare_rows, validation_rows, metrics, meta)
 
