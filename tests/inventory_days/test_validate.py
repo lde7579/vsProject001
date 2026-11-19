@@ -29,8 +29,10 @@ def test_validate_and_summarize():
 
 def test_validate_missing_sku_in_actual():
     res = compute_sku(SkuInputs('BIDS51DR15WH', 'BID', 'n', 'B', 0.7, 0.3, 42, 45, 1.0, 10, [5.0], [5.0] * 13))
-    [row] = validate([res], WeeklySales([35], {'BIDSS1DR15WH': [1.0]}), range(35, 36))
+    row, only = validate([res], WeeklySales([35], {'BIDSS1DR15WH': [1.0]}), range(35, 36))
     assert row.memo == '실적파일없음' and row.actual_week_avg is None
+    # 실제 파일 쪽 SKU도 사유와 함께 남는다(설계 8장)
+    assert only.sku == 'BIDSS1DR15WH' and only.memo == '계산대상없음' and only.actual_week_avg == 1.0
 
 
 def test_validate_missing_weeks_raises():
@@ -84,3 +86,41 @@ def test_common_scope_and_aggregation():
     assert m[('전체', '기존수기')].n_lt == 3  # N도 기존수기는 채점됨
     order = [s.scope for s in summarize(rows)]
     assert order[0] == '전체' and order[4] == '공통' and order[8] == 'G'
+
+
+def test_group_scope_uses_same_skus_across_bases():
+    # 그룹 G 안에 FCST가 없는 F(FCST기준·가중평균·기존수기 채점 불가)가 있어도 기준마다 SKU 수가 같다
+    ok, nograde, nofcst = _three_skus()
+    b = compute_sku(SkuInputs('B', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 1.0, 50, [10.0, 10.0], [10.0] * 13))
+    actual = WeeklySales([35, 36], {'A': [20.0, 20.0], 'N': [10.0, 10.0], 'F': [10.0, 10.0], 'B': [5.0, 5.0]})
+    m = {(s.scope, s.basis): s for s in summarize(validate([ok, nograde, nofcst, b], actual, range(35, 37)))}
+    assert {m[('G', x)].n_demand for x in ('가중평균', '실적기준', 'FCST기준')} == {m[('공통', '가중평균')].n_demand}
+    assert {m[('G', x)].n_lt for x in ('기존수기', '가중평균', '실적기준', 'FCST기준')} == {m[('공통', '가중평균')].n_lt}
+    assert m[('전체', '실적기준')].n_demand == 4  # 전체는 기준별로 채점 가능한 SKU를 모두 쓴다
+
+
+def test_actual_only_sku_appended_with_memo():
+    res = compute_sku(SkuInputs('X', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 1.0, 50, [10.0], [10.0] * 13))
+    rows = validate([res], WeeklySales([35], {'X': [7.0], 'ONLY': [3.0]}), range(35, 36))
+    assert [r.sku for r in rows] == ['X', 'ONLY']
+    only = rows[-1]
+    assert only.memo == '계산대상없음'
+    assert all(c.error_week is None and c.covered is None for c in only.checks.values())
+    m = {(s.scope, s.basis): s for s in summarize(rows)}
+    assert m[('전체', '가중평균')].n_demand == 1  # 지표에서 자동으로 빠진다
+    assert '미분류' not in {s.scope for s in summarize(rows)}  # 계산대상없음 행만으로 그룹 범위를 만들지 않는다
+
+
+def test_error_share_sums_to_one_per_basis():
+    ok, nograde, nofcst = _three_skus()
+    b = compute_sku(SkuInputs('B', 'H', 'n', 'B', 0.7, 0.3, 14, 30, 1.0, 50, [10.0, 10.0], [10.0] * 13))
+    actual = WeeklySales([35, 36], {'A': [20.0, 20.0], 'N': [10.0, 10.0], 'F': [10.0, 10.0], 'B': [5.0, 5.0]})
+    rows = validate([ok, nograde, nofcst, b], actual, range(35, 37))
+    for basis in ('가중평균', '실적기준', 'FCST기준'):
+        shares = [r.checks[basis].error_share for r in rows if r.checks[basis].error_share is not None]
+        assert sum(shares) == approx(1.0), basis
+        total = sum(abs(r.checks[basis].error_week) for r in rows if r.checks[basis].error_week is not None)
+        for r in rows:
+            c = r.checks[basis]
+            assert c.error_share == (None if c.error_week is None else approx(abs(c.error_week) / total))
+    assert all(r.checks['기존수기'].error_share is None for r in rows)

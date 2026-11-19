@@ -4,7 +4,7 @@
 """
 import math
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from safety_stock.common.xlsx import InputError
 from safety_stock.inventory_days.calc import BASES, SkuResult
@@ -12,6 +12,7 @@ from safety_stock.inventory_days.loader import WeeklySales
 
 VALIDATION_BASES = ('기존수기',) + BASES
 _NO_GROUP = '미분류'
+NOT_CALCULATED = '계산대상없음'  # 실제 출고 파일에만 있는 SKU의 메모
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class BasisCheck:
     covered: bool | None
     actual_days: float | None
     excluded: str | None = None  # 입력 데이터가 없어 채점에서 뺀 사유
+    error_share: float | None = None  # 오차기여율: |수요오차| / 그 기준 '전체' Σ|수요오차|
 
 
 @dataclass(frozen=True)
@@ -63,8 +65,25 @@ def _empty_checks() -> dict[str, BasisCheck]:
     return {b: BasisCheck(None, None, None, None, None) for b in VALIDATION_BASES}
 
 
+def _with_error_shares(rows: list[ValidationRow]) -> list[ValidationRow]:
+    """기준별로 각 SKU의 |수요오차|가 전체 Σ|수요오차|에서 차지하는 비율을 채운다."""
+    totals = {b: sum(abs(r.checks[b].error_week) for r in rows if r.checks[b].error_week is not None)
+              for b in VALIDATION_BASES}
+    out = []
+    for r in rows:
+        checks = {}
+        for b, c in r.checks.items():
+            share = abs(c.error_week) / totals[b] if c.error_week is not None and totals[b] > 0 else None
+            checks[b] = replace(c, error_share=share)
+        out.append(replace(r, checks=checks))
+    return out
+
+
 def validate(results: list[SkuResult], actual: WeeklySales, weeks: range) -> list[ValidationRow]:
-    """SKU별로 기준마다 목표 재고량·예측 오차·LT 수요 방어 여부·실제 재고일수를 구한다."""
+    """SKU별로 기준마다 목표 재고량·예측 오차·LT 수요 방어 여부·실제 재고일수를 구한다.
+
+    실제 출고 파일에만 있는 SKU는 메모 '계산대상없음'으로 끝에 붙인다(채점 값은 모두 None).
+    """
     if len(weeks) == 0:
         raise InputError('검증 주차 범위가 비어 있습니다')
     missing = [w for w in weeks if w not in actual.week_numbers]
@@ -111,7 +130,15 @@ def validate(results: list[SkuResult], actual: WeeklySales, weeks: range) -> lis
             checks[b] = BasisCheck(target, predicted, error, covered, days)
         rows.append(ValidationRow(inp.sku, inp.group, inp.lead_time_days,
                                   week_avg, lt_demand, checks, None))
-    return rows
+
+    calculated = {res.inputs.sku for res in results}
+    for sku, series in actual.by_sku.items():
+        if sku in calculated:
+            continue
+        weekly = [(series[i] if i < len(series) and series[i] is not None else 0.0) for i in cols]
+        rows.append(ValidationRow(sku, None, None, statistics.fmean(weekly), None,
+                                  _empty_checks(), NOT_CALCULATED))
+    return _with_error_shares(rows)
 
 
 def _metric(scope: str, basis: str, demand_rows: list[ValidationRow],
@@ -135,18 +162,20 @@ def _metric(scope: str, basis: str, demand_rows: list[ValidationRow],
 def summarize(rows: list[ValidationRow]) -> list[SummaryMetric]:
     """'전체', '공통', 품목그룹별로 기준마다 WAPE·편향·방어율·실제 재고일수 중앙값을 낸다.
 
+    '전체'는 기준별로 채점 가능한 SKU를 모두 쓴다(기준마다 SKU 수가 다를 수 있다).
     '공통'은 기준 간 비교용이다. 수요 지표는 세 산식 기준 모두 오차가 있는 SKU만,
     LT 지표는 네 기준 모두 방어 여부가 있는 SKU만 쓴다.
+    품목그룹 범위는 '공통'의 SKU를 그 그룹으로 거른 것이다.
     """
     groups: list[str] = []
     for r in rows:
         g = r.group or _NO_GROUP
-        if g not in groups:
+        if r.memo != NOT_CALCULATED and g not in groups:  # 계산대상없음 행만으로 그룹을 만들지 않는다
             groups.append(g)
     common_demand = [r for r in rows if all(r.checks[b].error_week is not None for b in BASES)]
     common_lt = [r for r in rows if all(r.checks[b].covered is not None for b in VALIDATION_BASES)]
     scopes = [('전체', rows, rows), ('공통', common_demand, common_lt)]
     for g in groups:
-        sub = [r for r in rows if (r.group or _NO_GROUP) == g]
-        scopes.append((g, sub, sub))
+        scopes.append((g, [r for r in common_demand if (r.group or _NO_GROUP) == g],
+                       [r for r in common_lt if (r.group or _NO_GROUP) == g]))
     return [_metric(scope, b, d, lt) for scope, d, lt in scopes for b in VALIDATION_BASES]
