@@ -298,7 +298,7 @@ def counter_case(calc: list[dict], val: dict[str, dict]) -> dict:
             and val[r['SKU']]['가중평균_LT수요방어'] == '결품' and val[r['SKU']]['기존수기_LT수요방어']
             and val[r['SKU']]['가중평균_오차기여율'] is not None]
     r = max(cand, key=lambda r: val[r['SKU']]['가중평균_오차기여율'])
-    rule = '점검메모가 없고 산식이 결품을 막지 못한 SKU 중 가중평균 오차기여율이 가장 큰 SKU'
+    rule = '점검메모가 없고 산식이 리드타임 수요를 덮지 못한(방어 실패) SKU 중 가중평균 오차기여율이 가장 큰 SKU'
     return case_dict(r, val[r['SKU']], rule)
 
 
@@ -535,6 +535,10 @@ def main() -> None:
         'sku_total': len(calc),
         'weight_search': weight_search(args.search),
     }
+    # 실적기준 값과 같은 SKU의 품목그룹(코드 앞글자와 그룹이 다를 수 있다: ETCBID 코드는 FLT 그룹)
+    copied = ast.literal_eval(re.search(r'COPIED_FROM_ACTUAL = (\{.*?\})', REAL_TEST.read_text(encoding='utf-8'), re.S).group(1))
+    grp = {r['SKU']: r['품목그룹'] for r in calc}
+    data['real']['copied_groups'] = dict(Counter(grp.get(s) or '미분류' for s in copied))
     if data['weight_search'] and ACTUAL_BOOK.exists():
         data['weight_search']['contributions'] = weight_contributions(data['weight_search'], calc, val_rows)
     args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -114,3 +114,16 @@ uv run python -m safety_stock.weight_search BASE.xlsx --actual ACTUAL.xlsx -o ou
 - `virtual_data`: 가상 보완본 생성
 - `weight_search`: 품목그룹별 가중치 탐색과 결과 작성
 - `common`: 공통 엑셀 유틸
+
+## 발표자료
+
+결과 xlsx에서 발표 숫자를 읽어 PPT를 만든다. 숫자는 손으로 적지 않는다. 처음 한 번 `presentation` 폴더에서 `npm install`을 실행한다.
+
+```
+uv run python presentation/extract.py
+node presentation/build.js
+powershell -File presentation/render.ps1
+```
+
+- 결과: `out/발표_적정재고일수.pptx`(장별 그림은 `out/render/slide-NN.png`)
+- `presentation/data.json`은 업무 수치라 저장소에서 제외한다(`extract.py`가 다시 만든다).
