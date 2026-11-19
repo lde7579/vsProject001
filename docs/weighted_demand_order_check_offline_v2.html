@@ -1,0 +1,3503 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>가중평균수요 반영 상품 발주 점검 v2.0</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--line:#d8e0ea;--text:#1f2937;--muted:#667085;--blue:#2563eb;--red:#dc2626;--green:#16a34a;--gray:#6b7280;--orange:#f97316}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,"Noto Sans KR",sans-serif;background:var(--bg);color:var(--text)}
+header{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:white;padding:24px 28px}
+header h1{margin:0 0 8px;font-size:26px}
+header p{margin:0;color:#dbeafe}
+main{padding:18px;max-width:1700px;margin:0 auto}
+.panel,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(15,23,42,.05)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:12px}
+.settings{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:14px}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:5px}
+input[type=file],select,input[type=text],input[type=number]{padding:9px;border:1px solid var(--line);border-radius:9px;background:white}
+input[type=range]{width:100%}
+button{border:0;border-radius:10px;padding:10px 14px;background:var(--blue);color:white;font-weight:700;cursor:pointer}
+button.secondary{background:#475569}
+button.danger{background:#b91c1c}
+button:disabled{opacity:.45;cursor:not-allowed}
+.kpi{background:white;border:1px solid var(--line);border-radius:12px;padding:14px}
+.kpi .v{font-size:24px;font-weight:800;margin-top:4px}
+.muted{color:var(--muted);font-size:13px}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:white;max-height:650px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid #edf2f7;padding:8px 10px;white-space:nowrap;text-align:right}
+th{position:sticky;top:0;background:#f8fafc;z-index:1;color:#334155}
+th:first-child,td:first-child,td:nth-child(2),td:nth-child(3){text-align:left}
+.badge{display:inline-block;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:800;color:white}
+.부족{background:var(--red)}.과잉{background:var(--green)}.정상{background:var(--blue)}.데이터부족{background:var(--gray)}
+.p1{background:#b91c1c}.p2{background:#ea580c}.p3{background:#ca8a04}.pex{background:#64748b}
+.msg{padding:10px 12px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;margin-bottom:12px;display:none}
+.msg.err{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+.small-table{max-height:240px;overflow:auto}
+svg{width:100%;height:330px;background:#fff;border:1px solid var(--line);border-radius:12px}
+@media (max-width:900px){.grid,.settings{grid-template-columns:1fr}}
+
+/* KPI 6개를 한 줄에 표시 */
+.kpi-five {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+/* SKU 그룹별 평균 재고일수 표 정렬 보정 */
+.group-summary-table th:nth-child(1),
+.group-summary-table td:nth-child(1) {
+  text-align: left;
+}
+.group-summary-table th:nth-child(2),
+.group-summary-table td:nth-child(2),
+.group-summary-table th:nth-child(3),
+.group-summary-table td:nth-child(3) {
+  text-align: right;
+}
+
+/* 데이터 검증 요약 자동 줄바꿈 */
+.validation-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.validation-table th {
+  width: 220px;
+  white-space: normal;
+  word-break: keep-all;
+}
+.validation-table td {
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+/* 결과 테이블 안쪽 필터 영역 */
+.inline-filter-box {
+  margin: 8px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+/* 그래프 선택 영역 */
+.chart-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+/* SKU 그룹별 평균 재고일수 전용 박스: 스크롤 제거 */
+.group-summary-wrap {
+  overflow: visible;
+  max-height: none;
+  width: max-content;
+  max-width: 100%;
+}
+
+/* SKU 그룹별 평균 재고일수 표: 내용 길이에 맞게 */
+.group-summary-table {
+  width: auto;
+  min-width: 320px;
+  table-layout: auto;
+}
+
+/* 컬럼별 적정 너비 */
+.group-summary-table th,
+.group-summary-table td {
+  white-space: nowrap;
+  padding: 8px 12px;
+}
+
+.group-summary-table th:nth-child(1),
+.group-summary-table td:nth-child(1) {
+  width: 90px;
+  min-width: 70px;
+  text-align: left;
+}
+
+.group-summary-table th:nth-child(2),
+.group-summary-table td:nth-child(2) {
+  width: 90px;
+  min-width: 70px;
+  text-align: right;
+}
+
+.group-summary-table th:nth-child(3),
+.group-summary-table td:nth-child(3) {
+  width: 70px;
+  min-width: 50px;
+  text-align: right;
+}
+
+/* 텍스트/숫자 정렬 제어 */
+td.text-cell, th.text-cell {
+  text-align: left !important;
+}
+
+td.num-cell, th.num-cell {
+  text-align: right !important;
+}
+
+td.center-cell, th.center-cell {
+  text-align: center !important;
+}
+
+/* 결과 테이블: 가로/세로 줄 모두 표시 + 행높이 증가 */
+#resultTable {
+  border-collapse: collapse;
+  border: 1px solid #d9e1ec;
+}
+
+#resultTable th,
+#resultTable td {
+  border: 1px solid #d9e1ec !important;
+  padding: 8px 10px;
+  height: 36px;
+  vertical-align: middle;
+}
+
+/* 헤더 구분감 */
+#resultTable th {
+  background: #f1f5f9;
+  font-weight: 800;
+}
+
+/* 행 hover 효과 */
+#resultTable tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* 상태 라벨 개선안 */
+.status-label {
+  display: inline-block;
+  min-width: 48px;
+  padding: 3px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* 정상은 효과 없이 텍스트만 */
+.status-normal {
+  display: inline;
+  min-width: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  color: #334155;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+/* 결품 */
+.status-stockout {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.psi-stockout {
+  background: #dc2626 !important;
+  color: white;
+  font-weight: 800;
+}
+
+/* 부족 */
+.status-short {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+/* 과잉 */
+.status-over {
+  background: #ecfdf5;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+/* 데이터부족 */
+.status-lack {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+
+/* 멀티 선택 필터 */
+.multi-filter {
+  position: relative;
+  min-width: 170px;
+}
+
+.multi-filter-btn {
+  width: 100%;
+  background: #fff;
+  color: #1f2937;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.multi-filter-btn::after {
+  content: "▾";
+  float: right;
+  color: #64748b;
+}
+
+.multi-filter-menu {
+  display: none;
+  position: absolute;
+  z-index: 50;
+  top: 42px;
+  left: 0;
+  min-width: 210px;
+  max-height: 260px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .14);
+  padding: 8px;
+}
+
+.multi-filter.open .multi-filter-menu {
+  display: block;
+}
+
+.multi-filter-menu label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  margin: 0;
+  color: #1f2937;
+  font-size: 13px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.multi-filter-menu label:hover {
+  background: #f1f5f9;
+}
+
+.multi-filter-menu input {
+  margin: 0;
+}
+
+.multi-filter-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 6px;
+}
+
+.multi-filter-actions button {
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+/* SKU 그룹별 평균 재고일수 표 너비/정렬 개선 */
+.group-summary-wrap {
+  overflow: visible;
+  max-height: none;
+  width: max-content;
+  max-width: 100%;
+}
+
+.group-summary-table {
+  width: auto;
+  min-width: 0;
+  table-layout: auto;
+}
+
+.group-summary-table th,
+.group-summary-table td {
+  white-space: nowrap;
+  padding: 9px 14px;
+  text-align: center !important;
+}
+
+/* SKU그룹 컬럼을 텍스트에 맞게 압축 */
+.group-summary-table th:nth-child(1),
+.group-summary-table td:nth-child(1) {
+  width: 70px;
+  min-width: 60px;
+  max-width: 90px;
+}
+
+/* 재고일수 */
+.group-summary-table th:nth-child(2),
+.group-summary-table td:nth-child(2) {
+  width: 90px;
+  min-width: 80px;
+}
+
+/* SKU수 */
+.group-summary-table th:nth-child(3),
+.group-summary-table td:nth-child(3) {
+  width: 70px;
+  min-width: 60px;
+}
+
+/* 설정 패널 레이아웃: 슬라이더 1줄, 나머지 항목 1줄 */
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 출고실적 가중치 슬라이더 한 줄 */
+.weight-row {
+  width: 100%;
+}
+
+.weight-row input[type=range] {
+  width: 520px;
+  max-width: 100%;
+}
+
+/* 나머지 설정값 한 줄 배치 */
+.setting-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.setting-row > div {
+  min-width: 130px;
+}
+
+.setting-row input[type=number] {
+  width: 110px;
+}
+
+/* 넓은 화면에서는 한 줄 유지 */
+@media (min-width: 1100px) {
+  .setting-row {
+    flex-wrap: nowrap;
+  }
+}
+
+/* PSI 히트맵 */
+.psi-heatmap-table {
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+}
+
+.psi-heatmap-table th,
+.psi-heatmap-table td {
+  border: 1px solid #d9e1ec !important;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.psi-sticky-group {
+  position: sticky;
+  left: 0;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+  z-index: 4;
+  background: #fff;
+  text-align: left !important;
+}
+
+.psi-sticky-sku {
+  position: sticky;
+  left: 90px;
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  z-index: 4;
+  background: #fff;
+  text-align: left !important;
+}
+
+.psi-sticky-name {
+  position: sticky;
+  left: 240px;
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  z-index: 4;
+  background: #fff;
+  text-align: left !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.psi-sticky-type {
+  position: sticky;
+  left: 500px;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+  z-index: 4;
+  background: #fff;
+  font-weight: 800;
+}
+
+.psi-heatmap-table th.psi-sticky-group,
+.psi-heatmap-table th.psi-sticky-sku,
+.psi-heatmap-table th.psi-sticky-name,
+.psi-heatmap-table th.psi-sticky-type {
+  background: #f1f5f9;
+  z-index: 7;
+}
+
+.psi-week-cell {
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  cursor: pointer;
+}
+
+.psi-short {
+  background: #fff1f2 !important;
+  color: #be123c;
+  font-weight: 800;
+}
+
+.psi-over {
+  background: #ecfdf5 !important;
+  color: #15803d;
+  font-weight: 800;
+}
+
+.psi-normal {
+  background: #fff !important;
+  color: #334155;
+}
+
+.psi-lack {
+  background: #f1f5f9 !important;
+  color: #64748b;
+}
+
+.detail-box {
+  line-height: 1.8;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.summary-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.summary-box {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+}
+
+.kpi-six {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.kpi-six .kpi {
+  padding: 12px;
+}
+
+.kpi-six .kpi .v {
+  font-size: 22px;
+}
+
+@media (max-width: 1200px) {
+  .summary-compare-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.summary-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.summary-box {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 좌우 제목 영역 높이 통일 */
+.summary-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  margin-bottom: 12px;
+}
+
+.summary-title-row h4 {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.summary-title-sub,
+#w4WeekRange {
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* KPI 영역 높이 통일 */
+.kpi-six {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(110px, 1fr));
+  gap: 10px;
+  min-height: 170px;
+  align-content: start;
+}
+
+.kpi-six .kpi {
+  padding: 12px;
+  min-height: 78px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.kpi-six .kpi .v {
+  font-size: 22px;
+}
+
+/* 표 제목 위치 통일 */
+.group-table-title {
+  margin: 18px 0 12px;
+  min-height: 24px;
+  line-height: 1.4;
+}
+
+/* 표 행 높이 통일 */
+.group-summary-table th,
+.group-summary-table td {
+  height: 32px;
+  padding: 7px 12px;
+  vertical-align: middle;
+}
+
+@media (max-width: 1200px) {
+  .summary-compare-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>가중평균수요 반영 상품 발주 점검 v2.0</h1>
+  <p>xlsx 업로드 · 가중평균수요 계산 · 공급계획 반영 예상재고 · 적정재고일수 · 발주 우선순위</p>
+</header>
+
+<main>
+  <div id="msg" class="msg"></div>
+
+  <section class="panel">
+    <div class="row">
+      <div>
+        <label>이번주 xlsx 파일 업로드</label>
+        <input id="fileInput" type="file" accept=".xlsx">
+      </div>
+      <div>
+        <label>지난주 xlsx 파일 업로드</label>
+        <input id="lastWeekFileInput" type="file" accept=".xlsx">
+      </div>
+      <button id="runBtn">결과 조회</button>
+      <button id="downloadBtn" class="secondary" disabled>결과 다운로드</button>
+      <button id="resetBtn" class="danger">초기화</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between">
+      <h2>데이터 검증 요약</h2>
+      <button id="toggleValidation" class="secondary" type="button">닫기</button>
+    </div>
+    <div id="validationBox"></div>
+  </section>
+
+  <section class="panel">
+    <h3>조건 설정</h3>
+    <div class="settings-layout">
+      <div class="weight-row">
+        <label>
+          출고실적 가중치:
+          <b><span id="histWeightLabel">70%</span></b>
+          / FCST 가중치:
+          <b><span id="fcstWeightLabel">30%</span></b>
+        </label>
+        <input id="histWeight" type="range" min="0" max="100" step="1" value="70">
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <label>서비스레벨 Z</label>
+          <input id="serviceZ" type="number" min="0" max="3" step="0.05" value="1.65">
+        </div>
+        <div>
+          <label>과잉기준배수</label>
+          <input id="overMul" type="number" min="1" max="3" step="0.1" value="1.5">
+        </div>
+        <div>
+          <label>부족기준배수</label>
+          <input id="shortMul" type="number" min="0.5" max="1.5" step="0.1" value="1.0">
+        </div>
+        <div>
+          <label>최근실적주수</label>
+          <input id="recentWeeks" type="number" min="4" max="12" step="1" value="4">
+        </div>
+        <div>
+          <label>FCST사용주수</label>
+          <input id="fcstWeeks" type="number" min="4" max="12" step="1" value="8">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3>재고 상태 요약</h3>
+    <div class="muted" style="line-height:1.7;margin-bottom:14px">
+      · <b>당주 현재재고 기준</b>은 업로드 파일의 현재재고와 가중평균 일수요를 기준으로 산정합니다.<br>
+      결품은 현재재고가 0 이하, 부족은 현재재고가 0 이상이고 재고일수가 적정 재고일수 미만,<br>
+      과잉은 재고일수가 적정 재고일수 × 과잉기준배수를 초과하는 경우입니다.<br><br>
+      · <b>W+4주 이내 예상 기준</b>은 FCST 첫 주차부터 4주차까지의 주차별 예상재고/재고일수 중<br>
+      결품, 부족, 과잉이 한 번이라도 발생한 SKU를 각 상태별로 집계합니다.<br>
+      여러 상태가 함께 발생하면 위험도 우선순위(<b>결품 &gt; 부족 &gt; 과잉</b>) 순으로 1개 상태만 집계합니다.
+    </div>
+
+    <div class="summary-compare-grid">
+      <div class="summary-box">
+        <div class="summary-title-row">
+          <h4>당주 현재재고 기준</h4>
+          <div class="muted summary-title-sub">&nbsp;</div>
+        </div>
+
+        <div class="kpi-six" id="currentKpis"></div>
+
+        <h4 class="group-table-title">SKU 그룹별 현재재고 기준 평균 재고일수</h4>
+        <div id="currentGroupSummaryBox"></div>
+      </div>
+
+      <div class="summary-box">
+        <div class="summary-title-row">
+          <h4>W+4주 이내 예상 기준</h4>
+          <div id="w4WeekRange" class="muted"></div>
+        </div>
+
+        <div class="kpi-six" id="w4Kpis"></div>
+
+        <h4 class="group-table-title">SKU 그룹별 W+4 평균 재고일수</h4>
+        <div id="w4GroupSummaryBox"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>출고 및 수요 Trend</h2>
+
+    <div class="chart-controls">
+      <div>
+        <label>조회 방식</label>
+        <select id="chartMode">
+          <option value="SKU">SKU별</option>
+          <option value="GROUP">SKU그룹별</option>
+        </select>
+      </div>
+
+      <div>
+        <label id="chartTargetLabel">SKU 선택</label>
+        <select id="chartSku"></select>
+      </div>
+    </div>
+
+    <div id="chartMsg" class="muted"></div>
+    <svg id="chart"></svg>
+  </section>
+
+  <section class="panel">
+    <h2>PSI 히트맵</h2>
+    <div class="muted" style="margin-bottom:10px">
+      각 주차는 공급계획과 주차별 가중평균수요를 반영한 기말 예상재고/재고일수 기준으로 표시합니다.<br>
+      셀 클릭 시 상세 내역을 확인할 수 있습니다.
+    </div>
+
+    <div class="row" style="margin-bottom:12px">
+      <div>
+        <label>품목그룹</label>
+        <div class="multi-filter" id="psiGroupMultiFilter">
+          <button type="button" class="multi-filter-btn" data-label="품목그룹">품목그룹: 전체</button>
+          <div class="multi-filter-menu">
+            <div class="multi-filter-actions">
+              <button type="button" data-action="all">전체 해제</button>
+              <button type="button" data-action="close">닫기</button>
+            </div>
+            <div class="multi-filter-options" id="psiGroupFilterOptions"></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label>상태</label>
+        <div class="multi-filter" id="psiStatusMultiFilter">
+          <button type="button" class="multi-filter-btn" data-label="상태">상태: 전체</button>
+          <div class="multi-filter-menu">
+            <div class="multi-filter-actions">
+              <button type="button" data-action="all">전체 해제</button>
+              <button type="button" data-action="close">닫기</button>
+            </div>
+            <div class="multi-filter-options" id="psiStatusFilterOptions">
+              <label><input type="checkbox" value="결품"> 결품</label>
+              <label><input type="checkbox" value="부족"> 부족</label>
+              <label><input type="checkbox" value="정상"> 정상</label>
+              <label><input type="checkbox" value="과잉"> 과잉</label>
+              <label><input type="checkbox" value="데이터부족"> 데이터부족</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label>SKU/SKU명 검색</label>
+        <input id="psiHeatmapSearch" type="text" placeholder="검색어" oninput="renderPsiHeatmap()">
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="psiHeatmapTable" class="psi-heatmap-table"></table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row" style="justify-content:space-between">
+      <h2>셀 상세</h2>
+      <button id="togglePsiDetail" class="secondary" type="button">닫기</button>
+    </div>
+    <div id="psiCellDetail" class="detail-box muted">히트맵 셀을 클릭하세요.</div>
+  </section>
+
+  <section class="panel">
+    <h2>결과 테이블</h2>
+
+    <div class="inline-filter-box">
+      <h4 style="margin:0 0 10px">필터</h4>
+
+      <div class="row">
+        <div>
+          <label>품목그룹</label>
+          <div class="multi-filter" id="groupMultiFilter">
+            <button type="button" class="multi-filter-btn" data-label="품목그룹">품목그룹: 전체</button>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-actions">
+                <button type="button" data-action="all">전체 해제</button>
+                <button type="button" data-action="close">닫기</button>
+              </div>
+              <div class="multi-filter-options" id="groupFilterOptions"></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>현재고 상태</label>
+          <div class="multi-filter" id="statusMultiFilter">
+            <button type="button" class="multi-filter-btn" data-label="현재고 상태">현재고 상태: 전체</button>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-actions">
+                <button type="button" data-action="all">전체 해제</button>
+                <button type="button" data-action="close">닫기</button>
+              </div>
+              <div class="multi-filter-options" id="statusFilterOptions">
+                <label><input type="checkbox" value="결품"> 결품</label>
+                <label><input type="checkbox" value="부족"> 부족</label>
+                <label><input type="checkbox" value="정상"> 정상</label>
+                <label><input type="checkbox" value="과잉"> 과잉</label>
+                <label><input type="checkbox" value="데이터부족"> 데이터부족</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>미래재고 예상</label>
+          <div class="multi-filter" id="futureStatusMultiFilter">
+            <button type="button" class="multi-filter-btn" data-label="미래재고 예상">미래재고 예상: 전체</button>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-actions">
+                <button type="button" data-action="all">전체 해제</button>
+                <button type="button" data-action="close">닫기</button>
+              </div>
+              <div class="multi-filter-options" id="futureStatusFilterOptions">
+                <label><input type="checkbox" value="결품"> 결품</label>
+                <label><input type="checkbox" value="부족"> 부족</label>
+                <label><input type="checkbox" value="과잉"> 과잉</label>
+                <label><input type="checkbox" value="-"> -</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>발생 예상주차</label>
+          <div class="multi-filter" id="futureWeekMultiFilter">
+            <button type="button" class="multi-filter-btn" data-label="발생 예상주차">발생 예상주차: 전체</button>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-actions">
+                <button type="button" data-action="all">전체 해제</button>
+                <button type="button" data-action="close">닫기</button>
+              </div>
+              <div class="multi-filter-options" id="futureWeekFilterOptions"></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>우선순위</label>
+          <div class="multi-filter" id="priorityMultiFilter">
+            <button type="button" class="multi-filter-btn" data-label="우선순위">우선순위: 전체</button>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-actions">
+                <button type="button" data-action="all">전체 해제</button>
+                <button type="button" data-action="close">닫기</button>
+              </div>
+              <div class="multi-filter-options" id="priorityFilterOptions">
+                <label><input type="checkbox" value="1순위"> 1순위</label>
+                <label><input type="checkbox" value="2순위"> 2순위</label>
+                <label><input type="checkbox" value="3순위"> 3순위</label>
+                <label><input type="checkbox" value="제외"> 제외</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>SKU/SKU명 검색</label>
+          <input id="searchInput" type="text" placeholder="검색어">
+        </div>
+      </div>
+    </div>
+
+    <div class="muted" style="margin-bottom:8px; line-height:1.7">
+      미래재고 예상: <b>미래재고 예상</b>은 주차별 가중평균수요를 반영한 각 FCST 주차의 기말 예상재고 기준이며,<br>
+      전체 FCST 기간 중 가장 먼저 발생한 이상 상태 1건만 표시합니다.<br>
+      따라서 동일 SKU가 W+4 이내에 과잉으로 먼저 시작한 뒤 이후 부족/결품으로 바뀌는 경우에도<br>
+      결과 테이블에는 최초 발생 상태인 과잉으로 표시될 수 있습니다.<br>
+      반면 <b>SKU 그룹별 W+4 평균 재고일수</b>는 <b>FCST 첫 4개 주차 전체를 대상으로 최악 상태</b><br>
+      (결품 &gt; 부족 &gt; 과잉 &gt; 정상) 기준으로 집계하므로, 두 영역의 건수는 다를 수 있습니다.
+    </div>
+
+    <div class="table-wrap">
+      <table id="resultTable"></table>
+    </div>
+  </section>
+</main>
+
+<script>
+/*
+  가중평균수요 반영 상품 발주 점검
+  - 단일 HTML
+  - 외부 라이브러리 의존 없음
+  - 브라우저에서 xlsx 직접 해제 / 시트 파싱
+  - 브라우저에서 xlsx 직접 생성
+*/
+
+let currentGroupSummary = [];
+let w4GroupSummary = [];
+
+let workbookData=null;
+let resultRows=[];
+let displayRows=[];
+let validation={};
+let groupSummary=[];
+let fcstWeekCols=[];
+let demandWeekCols=[];
+let supplyWeekCols=[];
+let uploadedFileName="";
+
+let previousWorkbookData = null;
+let previousResultRows = [];
+let previousUploadedFileName = "-";
+let comparisonApplied = false;
+let psiHeatmapValidation = {};
+
+/* =====================================================
+   기본 헬퍼
+===================================================== */
+const $=id=>document.getElementById(id);
+
+function showMsg(text,isErr=false){
+  const el=$("msg");
+  el.textContent=text;
+  el.className=isErr?"msg err":"msg";
+  el.style.display="block";
+}
+
+function clearMsg(){ $("msg").style.display="none"; }
+
+function num(v,def=0){
+  if(v===null||undefined===v||v==="") return def;
+  const n=Number(String(v).replace(/,/g,"").trim());
+  return Number.isFinite(n)?n:def;
+}
+
+function nearlyEqual(a, b, tolerance = 0.0001){
+  const na = num(a, NaN);
+  const nb = num(b, NaN);
+
+  if(!Number.isFinite(na) && !Number.isFinite(nb)) return true;
+  if(!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+
+  return Math.abs(na - nb) <= tolerance;
+}
+
+function round(v,d=0){
+  if(typeof v==="string") return v;
+  if(!Number.isFinite(v)) return "";
+  const p=Math.pow(10,d);
+  return Math.round(v*p)/p;
+}
+
+function fmtNumber(v){
+  if(v === "" || v === null || v === undefined) return "";
+  if(typeof v === "string"){
+    if(v === "계산불가" || v === "-") return v;
+    const n = num(v, NaN);
+    if(!Number.isFinite(n)) return v;
+    return Math.round(n).toLocaleString("ko-KR");
+  }
+
+  if(typeof v === "number" && Number.isFinite(v)){
+    return Math.round(v).toLocaleString("ko-KR");
+  }
+
+  return v;
+}
+
+function isNumericColumn(col){
+  return [
+    "현재 재고",
+    "현재 재고일수",
+    "적정 재고",
+    "적정 재고일수",
+    "부족수량",
+    "발주 제안수량",
+    "최근평균출고",
+    "평균FCST",
+    "가중평균 주간수요",
+    "평균 일수요",
+    "주간수요표준편차",
+    "리드타임수요",
+    "안전재고",
+    "발주 우선순위 점수",
+    "전주 현재 재고",
+    "전주대비 현재 재고",
+    "전주대비 현재 재고일수",
+    "전주대비 발주 제안수량"
+  ].includes(col)
+  || col.endsWith("_입고예정")
+  || col.endsWith("_예상재고")
+  || col.endsWith("_재고일수")
+  || col.endsWith("_가중평균수요");
+}
+
+function tableCellClass(col){
+  if(["SKU 그룹", "SKU", "SKU명"].includes(col)){
+    return "text-cell";
+  }
+  return "center-cell";
+}
+
+function avg(arr){
+  const a=arr.map(x=>num(x,NaN)).filter(Number.isFinite);
+  return a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
+}
+
+function stddev(arr){
+  const a=arr.map(x=>num(x,NaN)).filter(Number.isFinite);
+  if(a.length<=1) return 0;
+  const m=avg(a);
+  return Math.sqrt(a.reduce((s,x)=>s+Math.pow(x-m,2),0)/(a.length-1));
+}
+
+function escapeXml(s){
+  return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function escapeHtml(s){
+  return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function normText(v){ return String(v??"").trim(); }
+
+function escapeAttr(s){
+  return String(s??"")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+}
+
+/*
+  FCST 표준 주차: W43(10/19)
+  공급계획 분할 주차: W44A(10/26), W44B(11/1)
+  아래 함수는 W44A/B에서 주차 번호 44를 추출합니다.
+*/
+function weekNo(header){
+  const m=String(header||"").match(/^W(\d{2})(?:[A-Z])?\(/);
+  return m?m[1]:null;
+}
+
+function parseFcstDateLabel(fcstWeek){
+  const m = String(fcstWeek||"").match(/^W(\d{2})\((\d{1,2})\/(\d{1,2})\)$/);
+  if(!m) return null;
+
+  return {
+    weekNo: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3])
+  };
+}
+
+function formatMMDD(date){
+  const mm = String(date.getMonth()+1).padStart(2,"0");
+  const dd = String(date.getDate()).padStart(2,"0");
+  return `${mm}/${dd}`;
+}
+
+function demandWeekToFcstStyleLabel(demandWeek){
+  const m = String(demandWeek||"").match(/^WK(\d+)$/);
+  if(!m || !fcstWeekCols.length) return demandWeek;
+
+  const demandNo = Number(m[1]);
+  const first = fcstWeekCols[0];
+  const parsed = parseFcstDateLabel(first);
+  if(!parsed) return demandWeek;
+
+  const firstDate = new Date(2026, parsed.month-1, parsed.day);
+  const diffWeeks = demandNo - parsed.weekNo;
+  const d = new Date(firstDate);
+  d.setDate(firstDate.getDate() + diffWeeks * 7);
+
+  return `W${String(demandNo).padStart(2,"0")}(${formatMMDD(d)})`;
+}
+
+/*
+  유형 공급계획 컬럼을 FCST 주차 컬럼으로 매핑합니다.
+  예:
+    FCST: W44(10/26)
+    공급계획: W44A(10/26), W44B(11/1)
+    -> 둘 다 W44(10/26)으로 합산
+*/
+function canonicalSupplyWeek(header){
+  const no=weekNo(header);
+  if(!no) return null;
+  const matched=fcstWeekCols.find(w=>weekNo(w)===no);
+  return matched || String(header).replace(/^W(\d{2})[A-Z]\(/,"W$1(");
+}
+
+/* =====================================================
+   설정
+===================================================== */
+function currentSettings(){
+  const hw=num($("histWeight").value,70)/100;
+  return {
+    histWeight:hw,
+    fcstWeight:1-hw,
+    serviceZ:num($("serviceZ").value,1.65),
+    overMul:num($("overMul").value,1.5),
+    shortMul:num($("shortMul").value,1.0),
+    recentWeeks:Math.round(num($("recentWeeks").value,4)),
+    fcstWeeks:Math.round(num($("fcstWeeks").value,8))
+  };
+}
+
+$("histWeight").addEventListener("input",()=>{
+  $("histWeightLabel").textContent=$("histWeight").value+"%";
+  $("fcstWeightLabel").textContent=(100-Number($("histWeight").value))+"%";
+});
+
+/* =====================================================
+   xlsx ZIP 읽기
+===================================================== */
+async function unzipXlsx(arrayBuffer){
+  if(!("DecompressionStream" in window)){
+    throw new Error("이 브라우저는 DecompressionStream을 지원하지 않습니다. Chrome/Edge 최신버전을 사용해 주세요.");
+  }
+
+  const u8=new Uint8Array(arrayBuffer);
+  const dv=new DataView(arrayBuffer);
+  let eocd=-1;
+
+  for(let i=u8.length-22;i>=0;i--){
+    if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;}
+  }
+  if(eocd<0) throw new Error("올바른 xlsx ZIP 구조가 아닙니다.");
+
+  const total=dv.getUint16(eocd+10,true);
+  const cdOffset=dv.getUint32(eocd+16,true);
+  const files={};
+  let p=cdOffset;
+
+  for(let i=0;i<total;i++){
+    if(dv.getUint32(p,true)!==0x02014b50) throw new Error("ZIP 중앙 디렉터리 파싱 실패");
+    const method=dv.getUint16(p+10,true);
+    const compSize=dv.getUint32(p+20,true);
+    const nameLen=dv.getUint16(p+28,true);
+    const extraLen=dv.getUint16(p+30,true);
+    const commentLen=dv.getUint16(p+32,true);
+    const localOffset=dv.getUint32(p+42,true);
+    const name=new TextDecoder().decode(u8.slice(p+46,p+46+nameLen));
+
+    const lfNameLen=dv.getUint16(localOffset+26,true);
+    const lfExtraLen=dv.getUint16(localOffset+28,true);
+    const dataStart=localOffset+30+lfNameLen+lfExtraLen;
+    const compData=u8.slice(dataStart,dataStart+compSize);
+    files[name]={method,compData};
+    p+=46+nameLen+extraLen+commentLen;
+  }
+
+  const out={};
+  for(const [name,f] of Object.entries(files)){
+    let bytes;
+    if(f.method===0){
+      bytes=f.compData;
+    }else if(f.method===8){
+      const ds=new DecompressionStream("deflate-raw");
+      const stream=new Blob([f.compData]).stream().pipeThrough(ds);
+      bytes=new Uint8Array(await new Response(stream).arrayBuffer());
+    }else{
+      throw new Error("지원하지 않는 ZIP 압축 방식입니다: "+f.method);
+    }
+    out[name]=new TextDecoder("utf-8").decode(bytes);
+  }
+  return out;
+}
+
+function parseXml(text){ return new DOMParser().parseFromString(text,"application/xml"); }
+function attr(node,name){ return node.getAttribute(name); }
+
+function colToIdx(cellRef){
+  const letters=String(cellRef).replace(/[0-9]/g,"");
+  let n=0;
+  for(const ch of letters) n=n*26+(ch.charCodeAt(0)-64);
+  return n-1;
+}
+
+function readSharedStrings(files){
+  if(!files["xl/sharedStrings.xml"]) return [];
+  const xml=parseXml(files["xl/sharedStrings.xml"]);
+  return [...xml.getElementsByTagName("si")].map(si=>[...si.getElementsByTagName("t")].map(t=>t.textContent).join(""));
+}
+
+function readSheetMap(files){
+  const wb=parseXml(files["xl/workbook.xml"]);
+  const rels=parseXml(files["xl/_rels/workbook.xml.rels"]);
+  const relMap={};
+
+  [...rels.getElementsByTagName("Relationship")].forEach(r=>{
+    relMap[attr(r,"Id")]="xl/"+attr(r,"Target").replace(/^\/?xl\//,"");
+  });
+
+  return [...wb.getElementsByTagName("sheet")].map(s=>({
+    name:attr(s,"name"),
+    path:relMap[attr(s,"r:id")]
+  }));
+}
+
+/*
+  sheet.xml을 2차원 배열로 읽습니다.
+  헤더 행 위치가 시트별로 다를 수 있으므로 먼저 matrix로 보관합니다.
+*/
+function readSheetMatrix(files,path,shared){
+  const xml=parseXml(files[path]);
+  const rows=[...xml.getElementsByTagName("row")];
+  const matrix=[];
+
+  for(const r of rows){
+    const arr=[];
+    [...r.getElementsByTagName("c")].forEach(c=>{
+      const ref=attr(c,"r");
+      const idx=colToIdx(ref);
+      const t=attr(c,"t");
+      const v=c.getElementsByTagName("v")[0];
+      const is=c.getElementsByTagName("is")[0];
+      let val="";
+
+      if(t==="s"){
+        val=shared[Number(v?.textContent||0)]||"";
+      }else if(t==="inlineStr"){
+        val=is?[...is.getElementsByTagName("t")].map(x=>x.textContent).join(""):"";
+      }else{
+        val=v?v.textContent:"";
+      }
+      arr[idx]=val;
+    });
+    matrix.push(arr);
+  }
+  return matrix;
+}
+
+/*
+  특정 행을 헤더로 사용하여 객체 배열 변환
+  headerRowIndex는 0부터 시작합니다.
+*/
+function matrixToObjects(matrix,headerRowIndex){
+  const header=(matrix[headerRowIndex]||[]).map(x=>String(x||"").trim());
+  return matrix.slice(headerRowIndex+1)
+    .filter(r=>r.some(x=>x!==undefined&&x!==""))
+    .map(r=>{
+      const obj={};
+      header.forEach((h,i)=>{ if(h) obj[h]=r[i]??""; });
+      return obj;
+    });
+}
+
+/*
+  일반 시트는 헤더 행을 자동 탐색합니다.
+  예: 품목정보는 SKU가 있는 2행, 출고실적은 SKU가 있는 행
+*/
+function findHeaderRow(matrix,requiredNames){
+  for(let i=0;i<matrix.length;i++){
+    const row=(matrix[i]||[]).map(x=>String(x||"").trim());
+    if(requiredNames.every(name=>row.includes(name))) return i;
+  }
+  return 0;
+}
+
+/*
+  FCST는 요청사항에 따라 2행이 주차 헤더 행입니다.
+  다만 품목 기본 컬럼명은 1행과 2행이 혼합될 수 있어 보정합니다.
+  제공 파일 기준:
+  - 1행: 국가클래스, 품목 ID, 품목명 등 기본 컬럼
+  - 2행: W43(10/19) 등 주차 컬럼
+*/
+function fcstMatrixToObjects(matrix){
+  const row1=(matrix[0]||[]).map(x=>String(x||"").trim());
+  const row2=(matrix[1]||[]).map(x=>String(x||"").trim());
+  const maxLen=Math.max(row1.length,row2.length);
+  const header=[];
+
+  for(let i=0;i<maxLen;i++){
+    if(/^W\d{2}\(\d{1,2}\/\d{1,2}\)$/.test(row2[i]||"")){
+      header[i]=row2[i];
+    }else{
+      header[i]=row1[i]||row2[i]||"";
+    }
+  }
+
+  return matrix.slice(2)
+    .filter(r=>r.some(x=>x!==undefined&&x!==""))
+    .map(r=>{
+      const obj={};
+      header.forEach((h,i)=>{ if(h) obj[h]=r[i]??""; });
+      return obj;
+    });
+}
+
+async function readWorkbook(file){
+  const files=await unzipXlsx(await file.arrayBuffer());
+  const shared=readSharedStrings(files);
+  const sheets=readSheetMap(files);
+  const wb={};
+
+  for(const s of sheets){
+    const matrix=readSheetMatrix(files,s.path,shared);
+
+    if(s.name==="FCST"){
+      wb[s.name]=fcstMatrixToObjects(matrix);
+    }else if(s.name==="품목정보"){
+      wb[s.name]=matrixToObjects(matrix,findHeaderRow(matrix,["SKU","SKU명"]));
+    }else if(s.name==="출고실적" || s.name==="수요실적"){
+      wb[s.name]=matrixToObjects(matrix,findHeaderRow(matrix,["SKU","SKU명"]));
+    }else if(s.name==="공급계획"){
+      wb[s.name]=matrixToObjects(matrix,findHeaderRow(matrix,["품목코드","품목명"]));
+    }else if(s.name==="설정"){
+      wb[s.name]=matrixToObjects(matrix,findHeaderRow(matrix,["출고실적가중치","FCST가중치"]));
+    }else{
+      wb[s.name]=matrixToObjects(matrix,0);
+    }
+  }
+
+  return wb;
+}
+
+/* =====================================================
+   데이터 표준화
+===================================================== */
+function renameColumns(rows,mapping){
+  return rows.map(r=>{
+    const o={...r};
+    for(const [from,to] of Object.entries(mapping)){
+      if(o[to]===undefined && o[from]!==undefined) o[to]=o[from];
+    }
+    return o;
+  });
+}
+
+function getDemandSheetName(wb){
+  if(wb["수요실적"]) return "수요실적";
+  if(wb["출고실적"]) return "출고실적";
+  return null;
+}
+
+function standardizeWorkbook(wb){
+  if(wb["FCST"]){
+    wb["FCST"]=renameColumns(wb["FCST"],{
+      "품목 ID":"SKU",
+      "품목명":"SKU명"
+    });
+  }
+
+  if(wb["공급계획"]){
+    wb["공급계획"]=renameColumns(wb["공급계획"],{
+      "품목코드":"SKU",
+      "품목명":"SKU명"
+    });
+  }
+
+  return wb;
+}
+
+function requireSheet(wb,name){
+  if(!wb[name]) throw new Error("필수 시트가 누락되었습니다: "+name);
+}
+
+function requireCols(rows,sheetName,cols){
+  const first=rows[0]||{};
+  const headers=Object.keys(first);
+  const missing=cols.filter(c=>!headers.includes(c));
+  if(missing.length) throw new Error(`${sheetName} 시트 필수 컬럼 누락: ${missing.join(", ")}`);
+}
+
+function validateWorkbook(wb){
+  requireSheet(wb,"품목정보");
+  requireSheet(wb,"FCST");
+  requireSheet(wb,"공급계획");
+
+  const demandName=getDemandSheetName(wb);
+  if(!demandName) throw new Error("필수 시트가 누락되었습니다: 수요실적 또는 출고실적");
+
+  requireCols(wb["품목정보"],"품목정보",["SKU","SKU명","품목그룹","현재재고","리드타임일수","최소주문수량","주문배수"]);
+  requireCols(wb[demandName],demandName,["SKU","SKU명"]);
+  requireCols(wb["FCST"],"FCST",["SKU","SKU명"]);
+  requireCols(wb["공급계획"],"공급계획",["SKU","SKU명"]);
+
+  demandWeekCols=Object.keys(wb[demandName][0]||{}).filter(k=>/^WK\d+$/.test(k));
+  fcstWeekCols=Object.keys(wb["FCST"][0]||{}).filter(k=>/^W\d{2}\(\d{1,2}\/\d{1,2}\)$/.test(k));
+
+  /*
+    공급계획은 W44A(10/26), W44B(11/1) 형태도 허용합니다.
+  */
+  supplyWeekCols=Object.keys(wb["공급계획"][0]||{}).filter(k=>/^W\d{2}(?:[A-Z])?\(\d{1,2}\/\d{1,2}\)$/.test(k));
+
+  if(!demandWeekCols.length) throw new Error("수요실적/출고실적 주차 컬럼이 없습니다. 예: WK39, WK40");
+  if(!fcstWeekCols.length) throw new Error("FCST 주차 컬럼이 없습니다. 예: W43(10/19)");
+  if(!supplyWeekCols.length) throw new Error("공급계획 주차 컬럼이 없습니다. 예: W44A(10/26), W44B(11/1)");
+}
+
+/*
+  설정 시트가 항목/값 구조가 아니라 가로형 컬럼 구조일 경우
+  첫 번째 유효 행의 설정값을 화면 기본값으로 사용합니다.
+*/
+function readSettingsFromSheet(wb){
+  const defaults={
+    "출고실적가중치":0.7,
+    "FCST가중치":0.3,
+    "서비스레벨Z":1.65,
+    "과잉기준배수":1.5,
+    "부족기준배수":1.0,
+    "최근실적주수":4,
+    "FCST사용주수":8
+  };
+
+  const rows=wb["설정"]||[];
+  if(rows.length){
+    if("항목" in rows[0] && "값" in rows[0]){
+      rows.forEach(r=>{
+        const k=normText(r["항목"]);
+        if(k && r["값"]!==undefined && r["값"]!=="") defaults[k]=num(r["값"],defaults[k]);
+      });
+    }else{
+      const r=rows.find(x=>x["출고실적가중치"]!==undefined)||rows[0];
+      Object.keys(defaults).forEach(k=>{
+        if(r[k]!==undefined && r[k]!=="") defaults[k]=num(r[k],defaults[k]);
+      });
+    }
+  }
+
+  $("histWeight").value=Math.round(defaults["출고실적가중치"]*100);
+  $("histWeightLabel").textContent=$("histWeight").value+"%";
+  $("fcstWeightLabel").textContent=(100-Number($("histWeight").value))+"%";
+  $("serviceZ").value=defaults["서비스레벨Z"];
+  $("overMul").value=defaults["과잉기준배수"];
+  $("shortMul").value=defaults["부족기준배수"];
+  $("recentWeeks").value=defaults["최근실적주수"];
+  $("fcstWeeks").value=defaults["FCST사용주수"];
+}
+
+/* =====================================================
+   계산
+===================================================== */
+function makeSkuMap(rows){
+  const m=new Map();
+  rows.forEach(r=>{
+    const sku=normText(r.SKU);
+    if(sku) m.set(sku,r);
+  });
+  return m;
+}
+
+/*
+  공급계획 Map 생성
+  - 동일 SKU 여러 행 합산
+  - W44A/W44B 같은 분할 주차는 FCST의 W44(...)로 합산
+  - SKU 없는 빈 행은 제외
+*/
+function makeSupplyMap(rows){
+  const m=new Map();
+
+  rows.forEach(r=>{
+    const sku=normText(r.SKU);
+    if(!sku) return;
+
+    if(!m.has(sku)) m.set(sku,{});
+
+    supplyWeekCols.forEach(rawWeek=>{
+      const canonical=canonicalSupplyWeek(rawWeek);
+      if(!canonical) return;
+      m.get(sku)[canonical]=(m.get(sku)[canonical]||0)+num(r[rawWeek],0);
+    });
+  });
+
+  return m;
+}
+
+function judgeInventoryStatusByDays(stockQty, stockDays, properDays, overMul){
+  if(stockQty <= 0) return "결품";
+
+  if(
+    stockDays === "계산불가" ||
+    properDays === "계산불가" ||
+    !Number.isFinite(stockDays) ||
+    !Number.isFinite(properDays)
+  ){
+    return "데이터부족";
+  }
+
+  if(stockDays < properDays) return "부족";
+  if(stockDays > properDays * overMul) return "과잉";
+
+  return "정상";
+}
+
+function calculate(){
+  const wb=workbookData;
+  const cfg=currentSettings();
+  const demandName=getDemandSheetName(wb);
+
+  const items=wb["품목정보"];
+  const demandMap=makeSkuMap(wb[demandName]);
+  const fcstMap=makeSkuMap(wb["FCST"]);
+  const supplyMap=makeSupplyMap(wb["공급계획"]);
+
+  const maxLead=Math.max(...items.map(r=>num(r["리드타임일수"],0)),1);
+  const temp=[];
+  let maxCv=0;
+
+  for(const item of items){
+    const sku=normText(item.SKU);
+    if(!sku) continue;
+
+    const d=demandMap.get(sku);
+    const f=fcstMap.get(sku);
+    const s=supplyMap.get(sku)||{};
+
+    const recentCols=demandWeekCols.slice(-cfg.recentWeeks);
+    const fcstUseCols=fcstWeekCols.slice(0,cfg.fcstWeeks);
+
+    const recentVals=d?recentCols.map(w=>num(d[w],0)):[];
+    const fcstVals=f?fcstUseCols.map(w=>num(f[w],0)):[];
+
+    const recentAvg=avg(recentVals);
+    const avgFcst=avg(fcstVals);
+    const weightedWeekly=recentAvg*cfg.histWeight+avgFcst*cfg.fcstWeight;
+    const avgDaily=weightedWeekly/7;
+    const weeklyStd=stddev(recentVals);
+    const dailyStd=weeklyStd/7;
+
+    const stock=num(item["현재재고"],0);
+    const lead=num(item["리드타임일수"],0);
+    const moq=num(item["최소주문수량"],1);
+    const multiple=num(item["주문배수"],1)||1;
+
+    const leadDemand=avgDaily*lead;
+    const leadStd=dailyStd*Math.sqrt(Math.max(lead,1));
+    const safety=cfg.serviceZ*leadStd;
+    const proper=leadDemand+safety;
+
+    const properDays=avgDaily===0?"계산불가":proper/avgDaily;
+    const currentDays=avgDaily===0?"계산불가":stock/avgDaily;
+
+    let status = judgeInventoryStatusByDays(
+      stock,
+      currentDays,
+      properDays,
+      cfg.overMul
+    );
+
+    const weekData={};
+    let endStock=stock;
+    let firstFutureStatus="-";
+    let firstBadWeek="-";
+
+    fcstWeekCols.forEach(w=>{
+      const begin=endStock;
+      const inbound=num(s[w],0);
+
+      // 원본 FCST
+      const rawFcstDemand = f ? num(f[w],0) : 0;
+
+      // 조건 설정값을 반영한 주차별 가중평균수요
+      // 최근평균출고 * 출고실적가중치 + 해당 주차 FCST * FCST가중치
+      const weightedDemand = recentAvg * cfg.histWeight + rawFcstDemand * cfg.fcstWeight;
+
+      endStock = begin + inbound - weightedDemand;
+      const days = avgDaily === 0 ? "계산불가" : endStock / avgDaily;
+
+      weekData[w+"_입고예정"] = inbound;
+      weekData[w+"_FCST"] = rawFcstDemand;
+      weekData[w+"_가중평균수요"] = weightedDemand;
+      weekData[w+"_예상재고"] = endStock;
+      weekData[w+"_재고일수"] = days;
+
+      if(firstBadWeek === "-"){
+        const futureStatus = judgeInventoryStatusByDays(
+          endStock,
+          days,
+          properDays,
+          cfg.overMul
+        );
+
+        if(["결품", "부족", "과잉"].includes(futureStatus)){
+          firstFutureStatus = futureStatus;
+          firstBadWeek = w;
+        }
+      }
+    });
+
+    const shortage=Math.max(0,proper-stock);
+    let orderQty=0;
+    if(shortage>0){
+      orderQty=Math.max(moq,Math.ceil(shortage/multiple)*multiple);
+    }
+
+    const cv=recentAvg>0?weeklyStd/recentAvg:0;
+    maxCv=Math.max(maxCv,cv);
+
+    temp.push({
+      SKU:sku,
+      SKU명:item["SKU명"]||"",
+      품목그룹:item["품목그룹"]||"",
+      현재재고:stock,
+      리드타임일수:lead,
+      최근평균출고:recentAvg,
+      평균FCST:avgFcst,
+      가중평균주간수요:weightedWeekly,
+      평균일수요:avgDaily,
+      주간수요표준편차:weeklyStd,
+      리드타임수요:leadDemand,
+      안전재고:safety,
+      적정재고:proper,
+      적정재고일수:properDays,
+      현재재고일수:currentDays,
+      상태:status,
+      미래재고예상:firstFutureStatus,
+      재고상태변동주차:firstBadWeek,
+      부족수량:shortage,
+      추천발주수량:orderQty,
+      수요변동계수:cv,
+      _hist4:d?demandWeekCols.slice(-4).map(w=>({
+        week:demandWeekToFcstStyleLabel(w),
+        value:num(d[w],0)
+      })):[],
+      _fcst8:f?fcstWeekCols.slice(0,8).map(w=>({week:w,value:num(f[w],0)})):[],
+      ...weekData
+    });
+  }
+
+  resultRows=temp.map(r=>{
+    const shortageRate=r.적정재고>0?r.부족수량/r.적정재고:0;
+    const leadScore=maxLead>0?(r.리드타임일수/maxLead)*20:0;
+    const cvScore=maxCv>0?(r.수요변동계수/maxCv)*15:0;
+    const score=Math.min(shortageRate*60+leadScore+cvScore,100);
+
+    let priority="제외";
+    if(r.추천발주수량>0){
+      if(score>=80) priority="1순위";
+      else if(score>=50) priority="2순위";
+      else priority="3순위";
+    }
+    return {...r,우선순위점수:score,우선순위:priority};
+  });
+
+  if(comparisonApplied && previousResultRows.length){
+    applyWeekComparison();
+  }
+
+  buildValidation();
+  buildPsiHeatmapValidation();
+  buildGroupSummary();
+  renderAll();
+}
+
+function buildValidation(){
+  const demandName=getDemandSheetName(workbookData);
+  const items=workbookData["품목정보"];
+  const dMap=makeSkuMap(workbookData[demandName]);
+  const fMap=makeSkuMap(workbookData["FCST"]);
+  const sMap=makeSupplyMap(workbookData["공급계획"]);
+
+  const missingDemand=[];
+  const missingFcst=[];
+  const missingSupply=[];
+  const missingLead=[];
+  const missingMoq=[];
+
+  items.forEach(r=>{
+    const sku=normText(r.SKU);
+    if(!sku) return;
+    if(!dMap.has(sku)) missingDemand.push(sku);
+    if(!fMap.has(sku)) missingFcst.push(sku);
+    if(!sMap.has(sku)) missingSupply.push(sku);
+    if(!num(r["리드타임일수"],0)) missingLead.push(sku);
+    if(!num(r["최소주문수량"],0)||!num(r["주문배수"],0)) missingMoq.push(sku);
+  });
+
+  validation={
+    "업로드 파일명":uploadedFileName,
+    "품목정보 SKU 수":items.filter(r=>normText(r.SKU)).length,
+    "수요실적/출고실적 매칭 누락 SKU 수":missingDemand.length,
+    "FCST 매칭 누락 SKU 수":missingFcst.length,
+    "공급계획 매칭 누락 SKU 수":missingSupply.length,
+    "리드타임 누락 SKU 수":missingLead.length,
+    "MOQ/주문배수 누락 SKU 수":missingMoq.length,
+    "누락 SKU 예시":[...new Set([...missingDemand,...missingFcst,...missingSupply,...missingLead,...missingMoq])].slice(0,20).join(", ")||"-",
+    "공급계획 분할주차 처리":"W44A/W44B 등은 숫자 번호 기준으로 FCST 주차에 통합"
+  };
+}
+
+function buildPsiHeatmapValidation(){
+  const mismatches = [];
+  let checkedCellCount = 0;
+
+  resultRows.forEach(r=>{
+    fcstWeekCols.forEach(w=>{
+      checkedCellCount++;
+
+      const heatmapDisplay = getPsiDisplayStockDays(r, w);
+      const heatmapStatus = getPsiCellStatus(r, w);
+
+      const resultStock = r[w + "_예상재고"];
+      const resultDays = r[w + "_재고일수"];
+
+      const resultStatus = judgeInventoryStatusByDays(
+        num(resultStock, 0),
+        resultDays,
+        r.적정재고일수,
+        currentSettings().overMul
+      );
+
+      const stockMatched = nearlyEqual(heatmapDisplay.stock, resultStock);
+      const daysMatched =
+        heatmapDisplay.days === resultDays ||
+        nearlyEqual(heatmapDisplay.days, resultDays);
+
+      const statusMatched = heatmapStatus === resultStatus;
+
+      if(!stockMatched || !daysMatched || !statusMatched){
+        mismatches.push({
+          SKU:r.SKU,
+          SKU명:r.SKU명,
+          주차:w,
+          항목:"미래 예상재고 기준",
+          히트맵재고:heatmapDisplay.stock,
+          결과재고:resultStock,
+          히트맵재고일수:heatmapDisplay.days,
+          결과재고일수:resultDays,
+          히트맵상태:heatmapStatus,
+          결과상태:resultStatus
+        });
+      }
+    });
+  });
+
+  psiHeatmapValidation = {
+    "PSI 히트맵 검증 대상 셀 수": checkedCellCount,
+    "PSI 히트맵 불일치 셀 수": mismatches.length,
+    "PSI 히트맵 검증 결과": mismatches.length ? "불일치 있음" : "일치",
+    "PSI 히트맵 불일치 예시": mismatches.slice(0, 10).map(x=>
+      `${x.SKU}/${x.주차}: 재고(${fmtNumber(x.히트맵재고)}≠${fmtNumber(x.결과재고)}), ` +
+      `재고일수(${fmtNumber(x.히트맵재고일수)}≠${fmtNumber(x.결과재고일수)}), ` +
+      `상태(${x.히트맵상태}≠${x.결과상태})`
+    ).join(" | ") || "-"
+  };
+}
+
+function getW4Weeks(){
+  if(!fcstWeekCols.length) return [];
+
+  // W+4주 이내 = FCST 첫 주차부터 4개 주차
+  return fcstWeekCols.slice(0, Math.min(4, fcstWeekCols.length));
+}
+
+function getW4RepresentativeWeek(){
+  const weeks = getW4Weeks();
+  return weeks.length ? weeks[weeks.length - 1] : null;
+}
+
+function getW4CellStatus(row, week){
+  const stock = num(row[week + "_예상재고"], 0);
+  const days = row[week + "_재고일수"];
+  const properDays = row.적정재고일수;
+  const cfg = currentSettings();
+
+  return judgeInventoryStatusByDays(
+    stock,
+    days,
+    properDays,
+    cfg.overMul
+  );
+}
+
+function getW4WorstStatus(row){
+  const weeks = getW4Weeks();
+
+  if(!weeks.length) return "데이터부족";
+
+  const statuses = weeks.map(w=>getW4CellStatus(row, w));
+
+  if(statuses.includes("결품")) return "결품";
+  if(statuses.includes("부족")) return "부족";
+  if(statuses.includes("과잉")) return "과잉";
+  if(statuses.every(s=>s === "데이터부족")) return "데이터부족";
+
+  return "정상";
+}
+
+function buildGroupSummary(){
+  const currentMap = new Map();
+  const w4Map = new Map();
+  const w4Week = getW4RepresentativeWeek();
+
+  resultRows.forEach(r=>{
+    const g = r.품목그룹 || "-";
+
+    // 당주 현재재고 기준
+    if(!currentMap.has(g)){
+      currentMap.set(g, {
+        품목그룹:g,
+        재고일수목록:[],
+        결품SKU수:0,
+        부족SKU수:0,
+        과잉SKU수:0,
+        정상SKU수:0,
+        데이터부족SKU수:0,
+        SKU수:0
+      });
+    }
+
+    const current = currentMap.get(g);
+    current.SKU수++;
+
+    if(typeof r.현재재고일수 === "number" && Number.isFinite(r.현재재고일수)){
+      current.재고일수목록.push(r.현재재고일수);
+    }
+
+    if(r.상태 === "결품") current.결품SKU수++;
+    else if(r.상태 === "부족") current.부족SKU수++;
+    else if(r.상태 === "과잉") current.과잉SKU수++;
+    else if(r.상태 === "데이터부족") current.데이터부족SKU수++;
+    else current.정상SKU수++;
+
+    // W+4주 이내 예상 기준
+    if(!w4Map.has(g)){
+      w4Map.set(g, {
+        품목그룹:g,
+        재고일수목록:[],
+        결품SKU수:0,
+        부족SKU수:0,
+        과잉SKU수:0,
+        정상SKU수:0,
+        데이터부족SKU수:0,
+        SKU수:0
+      });
+    }
+
+    const w4 = w4Map.get(g);
+    w4.SKU수++;
+
+    const worstStatus = getW4WorstStatus(r);
+
+    if(worstStatus === "결품") w4.결품SKU수++;
+    else if(worstStatus === "부족") w4.부족SKU수++;
+    else if(worstStatus === "과잉") w4.과잉SKU수++;
+    else if(worstStatus === "데이터부족") w4.데이터부족SKU수++;
+    else w4.정상SKU수++;
+
+    if(w4Week){
+      const w4Days = r[w4Week + "_재고일수"];
+
+      if(typeof w4Days === "number" && Number.isFinite(w4Days)){
+        w4.재고일수목록.push(w4Days);
+      }
+    }
+  });
+
+  currentGroupSummary = [...currentMap.values()].map(x=>({
+    품목그룹:x.품목그룹,
+    평균재고일수:x.재고일수목록.length ? avg(x.재고일수목록) : "",
+    결품SKU수:x.결품SKU수,
+    부족SKU수:x.부족SKU수,
+    과잉SKU수:x.과잉SKU수,
+    정상SKU수:x.정상SKU수,
+    데이터부족SKU수:x.데이터부족SKU수,
+    SKU수:x.SKU수
+  }));
+
+  w4GroupSummary = [...w4Map.values()].map(x=>({
+    품목그룹:x.품목그룹,
+    W4평균재고일수:x.재고일수목록.length ? avg(x.재고일수목록) : "",
+    결품SKU수:x.결품SKU수,
+    부족SKU수:x.부족SKU수,
+    과잉SKU수:x.과잉SKU수,
+    정상SKU수:x.정상SKU수,
+    데이터부족SKU수:x.데이터부족SKU수,
+    SKU수:x.SKU수
+  }));
+
+  // 기존 다운로드 호환용
+  groupSummary = currentGroupSummary;
+}
+
+function applyWeekComparison(){
+  const prevMap = new Map();
+
+  previousResultRows.forEach(r=>{
+    if(r.SKU){
+      prevMap.set(String(r.SKU), r);
+    }
+  });
+
+  resultRows = resultRows.map(r=>{
+    const prev = prevMap.get(String(r.SKU));
+
+    if(!prev){
+      return {
+        ...r,
+        전주대비: "신규",
+        전주현재재고: "",
+        전주대비현재재고: "",
+        전주대비현재재고일수: "",
+        전주대비발주제안수량: ""
+      };
+    }
+
+    const currStock = num(r.현재재고, 0);
+    const prevStock = num(prev.현재재고, 0);
+
+    const currDays = typeof r.현재재고일수 === "number" ? r.현재재고일수 : NaN;
+    const prevDays = typeof prev.현재재고일수 === "number" ? prev.현재재고일수 : NaN;
+
+    const currOrder = num(r.추천발주수량, 0);
+    const prevOrder = num(prev.추천발주수량, 0);
+
+    let compare = "유지";
+
+    if(r.상태 !== prev.상태){
+      compare = `${prev.상태} -> ${r.상태}`;
+    }
+
+    return {
+      ...r,
+      전주대비: compare,
+      전주현재재고: prevStock,
+      전주대비현재재고: currStock - prevStock,
+      전주대비현재재고일수: Number.isFinite(currDays) && Number.isFinite(prevDays) ? currDays - prevDays : "",
+      전주대비발주제안수량: currOrder - prevOrder
+    };
+  });
+
+  const currentSkuSet = new Set(resultRows.map(r=>String(r.SKU)));
+
+  previousResultRows.forEach(prev=>{
+    if(!currentSkuSet.has(String(prev.SKU))){
+      resultRows.push({
+        ...prev,
+        전주대비: "해소",
+        전주현재재고: prev.현재재고,
+        전주대비현재재고: "",
+        전주대비현재재고일수: "",
+        전주대비발주제안수량: "",
+        상태: prev.상태,
+        미래재고예상: prev.미래재고예상 || "-",
+        재고상태변동주차: prev.재고상태변동주차 || "-"
+      });
+    }
+  });
+}
+
+/* =====================================================
+   화면 렌더링
+===================================================== */
+function psiStatusClass(status){
+  if(status === "결품") return "psi-stockout";
+  if(status === "부족") return "psi-short";
+  if(status === "과잉") return "psi-over";
+  if(status === "데이터부족") return "psi-lack";
+  return "psi-normal";
+}
+
+function getPsiDisplayStockDays(row, week){
+  return {
+    stock: row[week + "_예상재고"],
+    days: row[week + "_재고일수"]
+  };
+}
+
+function getPsiCellStatus(row, week){
+  const display = getPsiDisplayStockDays(row, week);
+  const cfg = currentSettings();
+
+  return judgeInventoryStatusByDays(
+    num(display.stock, 0),
+    display.days,
+    row.적정재고일수,
+    cfg.overMul
+  );
+}
+
+function renderPsiHeatmapFilters(){
+  const groupBox = $("psiGroupFilterOptions");
+  if(!groupBox) return;
+
+  const prevSelected = getCheckedValues("psiGroupMultiFilter");
+  const groups = [...new Set(resultRows.map(r=>r.품목그룹 || "-"))].sort();
+
+  groupBox.innerHTML = groups.map(g=>`
+    <label>
+      <input type="checkbox" value="${escapeHtml(g)}" ${prevSelected.includes(g) ? "checked" : ""}>
+      ${escapeHtml(g)}
+    </label>
+  `).join("");
+
+  updateMultiFilterButton("psiGroupMultiFilter");
+  updateMultiFilterButton("psiStatusMultiFilter");
+  initMultiFilterEvents();
+}
+
+function renderPsiHeatmap(){
+  const table = $("psiHeatmapTable");
+  if(!table) return;
+
+  const selectedGroups = getCheckedValues("psiGroupMultiFilter");
+  const selectedStatuses = getCheckedValues("psiStatusMultiFilter");
+  const search = ($("psiHeatmapSearch")?.value || "").trim().toLowerCase();
+
+  const rows = resultRows.filter(r=>{
+    const group = r.품목그룹 || "-";
+
+    if(selectedGroups.length && !selectedGroups.includes(group)) return false;
+
+    if(search && !(
+      String(r.SKU).toLowerCase().includes(search) ||
+      String(r.SKU명).toLowerCase().includes(search) ||
+      String(group).toLowerCase().includes(search)
+    )) return false;
+
+    if(selectedStatuses.length){
+      const hasStatus = fcstWeekCols.some(w=>selectedStatuses.includes(getPsiCellStatus(r, w)));
+      if(!hasStatus) return false;
+    }
+
+    return true;
+  });
+
+  let html = `
+    <thead>
+      <tr>
+        <th class="psi-sticky-group">SKU 그룹</th>
+        <th class="psi-sticky-sku">SKU</th>
+        <th class="psi-sticky-name">SKU명</th>
+        <th class="psi-sticky-type">구분</th>
+        ${fcstWeekCols.map(w=>`<th class="psi-week-cell">${escapeHtml(w)}</th>`).join("")}
+      </tr>
+    </thead>
+    <tbody>
+  `;
+
+  if(!rows.length){
+    html += `
+      <tr>
+        <td colspan="${fcstWeekCols.length + 4}" class="text-cell">
+          표시할 히트맵 데이터가 없습니다.
+        </td>
+      </tr>
+    `;
+  }else{
+    rows.forEach(r=>{
+      html += `
+        <tr>
+          <td class="psi-sticky-group">${escapeHtml(r.품목그룹 || "-")}</td>
+          <td class="psi-sticky-sku">${escapeHtml(r.SKU)}</td>
+          <td class="psi-sticky-name" title="${escapeHtml(r.SKU명)}">${escapeHtml(r.SKU명)}</td>
+          <td class="psi-sticky-type">예상재고</td>
+          ${fcstWeekCols.map(w=>{
+            const display = getPsiDisplayStockDays(r, w);
+            const status = getPsiCellStatus(r, w);
+
+            const cell = {
+              type:"예상재고",
+              sku:r.SKU,
+              name:r.SKU명,
+              group:r.품목그룹,
+              week:w,
+              status,
+              currentStock:r.현재재고,
+              inbound:r[w + "_입고예정"],
+              fcst:r[w + "_가중평균수요"],
+              rawFcst:r[w + "_FCST"],
+              endingStock:display.stock,
+              stockDays:display.days,
+              properStock:r.적정재고,
+              properDays:r.적정재고일수,
+              weightedWeekly:r.가중평균주간수요,
+              avgDaily:r.평균일수요
+            };
+
+            return `
+              <td class="psi-week-cell ${psiStatusClass(status)}"
+                  onclick='showPsiCellDetail(${escapeAttr(JSON.stringify(cell))})'>
+                ${fmtNumber(display.stock)}
+              </td>
+            `;
+          }).join("")}
+        </tr>
+        <tr>
+          <td class="psi-sticky-group"></td>
+          <td class="psi-sticky-sku"></td>
+          <td class="psi-sticky-name"></td>
+          <td class="psi-sticky-type">재고일수</td>
+          ${fcstWeekCols.map(w=>{
+            const display = getPsiDisplayStockDays(r, w);
+            const status = getPsiCellStatus(r, w);
+
+            const cell = {
+              type:"재고일수",
+              sku:r.SKU,
+              name:r.SKU명,
+              group:r.품목그룹,
+              week:w,
+              status,
+              currentStock:r.현재재고,
+              inbound:r[w + "_입고예정"],
+              fcst:r[w + "_가중평균수요"],
+              rawFcst:r[w + "_FCST"],
+              endingStock:display.stock,
+              stockDays:display.days,
+              properStock:r.적정재고,
+              properDays:r.적정재고일수,
+              weightedWeekly:r.가중평균주간수요,
+              avgDaily:r.평균일수요
+            };
+
+            return `
+              <td class="psi-week-cell ${psiStatusClass(status)}"
+                  onclick='showPsiCellDetail(${escapeAttr(JSON.stringify(cell))})'>
+                ${fmtNumber(display.days)}
+              </td>
+            `;
+          }).join("")}
+        </tr>
+      `;
+    });
+  }
+
+  html += `</tbody>`;
+  table.innerHTML = html;
+}
+
+function showPsiCellDetail(cell){
+  const box = $("psiCellDetail");
+  if(!box) return;
+
+  box.innerHTML = `
+    <b>셀 상세</b><br>
+    <b>SKU그룹:</b> ${escapeHtml(cell.group || "-")}<br>
+    <b>SKU:</b> ${escapeHtml(cell.sku)}<br>
+    <b>SKU명:</b> ${escapeHtml(cell.name)}<br>
+    <b>주차:</b> ${escapeHtml(cell.week)}<br>
+    <b>항목:</b> ${escapeHtml(cell.type)}<br>
+    <b>상태:</b> ${statusLabel(cell.status)}<br>
+    <b>현재 재고:</b> ${fmtNumber(cell.currentStock)}<br>
+    <b>입고예정:</b> ${fmtNumber(cell.inbound)}<br>
+    <b>원본 FCST 수요:</b> ${fmtNumber(cell.rawFcst)}<br>
+    <b>가중평균수요:</b> ${fmtNumber(cell.fcst)}<br>
+    <b>기말 예상재고:</b> ${fmtNumber(cell.endingStock)}<br>
+    <b>재고일수:</b> ${fmtNumber(cell.stockDays)}<br>
+    <b>가중평균 주간수요:</b> ${fmtNumber(cell.weightedWeekly)}<br>
+    <b>평균 일수요:</b> ${fmtNumber(cell.avgDaily)}<br>
+    <b>적정 재고:</b> ${fmtNumber(cell.properStock)}<br>
+    <b>적정 재고일수:</b> ${fmtNumber(cell.properDays)}
+  `;
+}
+
+function closePsiCellDetail(){
+  const box = $("psiCellDetail");
+  if(box) box.innerHTML = "히트맵 셀을 클릭하세요.";
+}
+
+function togglePsiCellDetail(){
+  const box = $("psiCellDetail");
+  const btn = $("togglePsiDetail");
+
+  if(!box || !btn) return;
+
+  const isHidden = box.hidden === true;
+
+  box.hidden = !isHidden;
+  btn.textContent = isHidden ? "닫기" : "열기";
+}
+
+function renderAll(){
+  renderKpis();
+  renderFilters();
+  applyFilters();
+  renderChartSku();
+  renderChart();
+  renderValidation();
+
+  renderPsiHeatmapFilters();
+  renderPsiHeatmap();
+
+  $("downloadBtn").disabled=resultRows.length===0;
+}
+
+function renderKpis(){
+  renderCurrentKpis();
+  renderW4Kpis();
+}
+
+function renderCurrentKpis(){
+  const box = $("currentKpis");
+  if(!box) return;
+
+  const total = resultRows.length;
+  const count = s => resultRows.filter(r=>r.상태 === s).length;
+
+  const cards = [
+    ["총 SKU 수", total],
+    ["결품 SKU", count("결품")],
+    ["부족 SKU", count("부족")],
+    ["과잉 SKU", count("과잉")],
+    ["정상 SKU", count("정상")],
+    ["데이터부족 SKU", count("데이터부족")]
+  ];
+
+  box.innerHTML = cards.map(([label,value])=>`
+    <div class="kpi">
+      <div class="muted">${escapeHtml(label)}</div>
+      <div class="v">${fmtNumber(value)}</div>
+    </div>
+  `).join("");
+}
+
+function renderW4Kpis(){
+  const box = $("w4Kpis");
+  const rangeBox = $("w4WeekRange");
+
+  if(!box) return;
+
+  const total = resultRows.length;
+  const count = s => resultRows.filter(r=>getW4WorstStatus(r) === s).length;
+
+  const w4Weeks = getW4Weeks();
+  const rangeText = w4Weeks.length
+    ? `기준 주차: ${w4Weeks[0]} ~ ${w4Weeks[w4Weeks.length - 1]}`
+    : `기준 주차: -`;
+
+  if(rangeBox){
+    rangeBox.innerHTML = escapeHtml(rangeText);
+  }
+
+  const cards4 = [
+    ["총 SKU 수", total],
+    ["결품 SKU", count("결품")],
+    ["부족 SKU", count("부족")],
+    ["과잉 SKU", count("과잉")],
+    ["정상 SKU", count("정상")],
+    ["데이터부족 SKU", count("데이터부족")]
+  ];
+
+  box.innerHTML = cards4.map(([label,value])=>`
+    <div class="kpi">
+      <div class="muted">W+4 이내 ${escapeHtml(label)}</div>
+      <div class="v">${fmtNumber(value)}</div>
+    </div>
+  `).join("");
+}
+
+function renderValidation(){
+  const validationTable = `
+    <table class="validation-table">
+      <tbody>
+        ${Object.entries(validation).map(([k,v])=>`
+          <tr>
+            <th>${escapeHtml(k)}</th>
+            <td>${escapeHtml(v)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  const psiValidationTable = `
+    <h4 style="margin:16px 0 8px">PSI 히트맵-결과 테이블 정합성 검증</h4>
+    <table class="validation-table">
+      <tbody>
+        ${Object.entries(psiHeatmapValidation).map(([k,v])=>`
+          <tr>
+            <th>${escapeHtml(k)}</th>
+            <td>${escapeHtml(v)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  const currentGroupTable = `
+    <div class="group-summary-wrap">
+      <table class="group-summary-table">
+        <thead>
+          <tr>
+            <th>SKU그룹</th>
+            <th>재고일수</th>
+            <th>결품</th>
+            <th>부족</th>
+            <th>과잉</th>
+            <th>정상</th>
+            <th>데이터부족</th>
+            <th>SKU수</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${currentGroupSummary.map(g=>`
+            <tr>
+              <td>${escapeHtml(g.품목그룹)}</td>
+              <td>${fmtNumber(g.평균재고일수)}</td>
+              <td>${fmtNumber(g.결품SKU수)}</td>
+              <td>${fmtNumber(g.부족SKU수)}</td>
+              <td>${fmtNumber(g.과잉SKU수)}</td>
+              <td>${fmtNumber(g.정상SKU수)}</td>
+              <td>${fmtNumber(g.데이터부족SKU수)}</td>
+              <td>${fmtNumber(g.SKU수)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const w4Week = getW4RepresentativeWeek();
+
+  const w4GroupTable = `
+    <div class="group-summary-wrap">
+      <table class="group-summary-table">
+        <thead>
+          <tr>
+            <th>SKU그룹</th>
+            <th>${escapeHtml(w4Week || "W+4")} 재고일수</th>
+            <th>결품</th>
+            <th>부족</th>
+            <th>과잉</th>
+            <th>정상</th>
+            <th>데이터부족</th>
+            <th>SKU수</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${w4GroupSummary.map(g=>`
+            <tr>
+              <td>${escapeHtml(g.품목그룹)}</td>
+              <td>${fmtNumber(g.W4평균재고일수)}</td>
+              <td>${fmtNumber(g.결품SKU수)}</td>
+              <td>${fmtNumber(g.부족SKU수)}</td>
+              <td>${fmtNumber(g.과잉SKU수)}</td>
+              <td>${fmtNumber(g.정상SKU수)}</td>
+              <td>${fmtNumber(g.데이터부족SKU수)}</td>
+              <td>${fmtNumber(g.SKU수)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  $("validationBox").innerHTML = validationTable + psiValidationTable;
+
+  const currentGroupBox = $("currentGroupSummaryBox");
+  if(currentGroupBox){
+    currentGroupBox.innerHTML = currentGroupTable;
+  }
+
+  const w4GroupBox = $("w4GroupSummaryBox");
+  if(w4GroupBox){
+    w4GroupBox.innerHTML = w4GroupTable;
+  }
+}
+
+function getCheckedValues(containerId){
+  const box = $(containerId);
+  if(!box) return [];
+
+  return [...box.querySelectorAll("input[type=checkbox]:checked")]
+    .map(input=>input.value);
+}
+
+function updateMultiFilterButton(containerId){
+  const box = $(containerId);
+  if(!box) return;
+
+  const btn = box.querySelector(".multi-filter-btn");
+  const label = btn?.dataset.label || "필터";
+  const values = getCheckedValues(containerId);
+
+  if(!btn) return;
+
+  if(values.length === 0){
+    btn.textContent = `${label}: 전체`;
+  }else if(values.length === 1){
+    btn.textContent = `${label}: ${values[0]}`;
+  }else{
+    btn.textContent = `${label}: ${values.length}개 선택`;
+  }
+}
+
+function updateAllMultiFilterButtons(){
+  [
+    "groupMultiFilter",
+    "statusMultiFilter",
+    "futureStatusMultiFilter",
+    "futureWeekMultiFilter",
+    "priorityMultiFilter",
+    "psiGroupMultiFilter",
+    "psiStatusMultiFilter"
+  ].forEach(updateMultiFilterButton);
+}
+
+function initMultiFilterEvents(){
+  document.querySelectorAll(".multi-filter").forEach(filter=>{
+    const btn = filter.querySelector(".multi-filter-btn");
+    const menu = filter.querySelector(".multi-filter-menu");
+
+    if(btn && !btn.dataset.bound){
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", e=>{
+        e.stopPropagation();
+
+        document.querySelectorAll(".multi-filter.open").forEach(opened=>{
+          if(opened !== filter) opened.classList.remove("open");
+        });
+
+        filter.classList.toggle("open");
+      });
+    }
+
+    if(menu && !menu.dataset.bound){
+      menu.dataset.bound = "1";
+
+      menu.addEventListener("click", e=>{
+        e.stopPropagation();
+
+        const action = e.target?.dataset?.action;
+
+        if(action === "close"){
+          filter.classList.remove("open");
+          return;
+        }
+
+        if(action === "all"){
+          menu.querySelectorAll("input[type=checkbox]").forEach(input=>{
+            input.checked = false;
+          });
+
+          updateMultiFilterButton(filter.id);
+
+          if(filter.id === "psiGroupMultiFilter" || filter.id === "psiStatusMultiFilter"){
+            renderPsiHeatmap();
+          }else{
+            applyFilters();
+          }
+
+          return;
+        }
+
+        if(e.target && e.target.matches("input[type=checkbox]")){
+          updateMultiFilterButton(filter.id);
+
+          if(filter.id === "psiGroupMultiFilter" || filter.id === "psiStatusMultiFilter"){
+            renderPsiHeatmap();
+          }else{
+            applyFilters();
+          }
+        }
+      });
+    }
+  });
+
+  if(!document.body.dataset.multiFilterOutsideBound){
+    document.body.dataset.multiFilterOutsideBound = "1";
+    document.body.addEventListener("click", ()=>{
+      document.querySelectorAll(".multi-filter.open").forEach(filter=>{
+        filter.classList.remove("open");
+      });
+    });
+  }
+}
+
+function renderFilters(){
+  const groups=[...new Set(resultRows.map(r=>r.품목그룹||"-"))].sort();
+
+  const futureWeeks=[...new Set(resultRows.map(r=>r.재고상태변동주차 || "-"))]
+    .sort((a,b)=>{
+      if(a === "-") return -1;
+      if(b === "-") return 1;
+
+      const na = Number((String(a).match(/^W(\d{2})/) || [])[1] || 999);
+      const nb = Number((String(b).match(/^W(\d{2})/) || [])[1] || 999);
+      return na - nb;
+    });
+
+  const groupBox = $("groupFilterOptions");
+  if(groupBox){
+    groupBox.innerHTML = groups.map(g=>`
+      <label>
+        <input type="checkbox" value="${escapeHtml(g)}"> ${escapeHtml(g)}
+      </label>
+    `).join("");
+  }
+
+  const weekBox = $("futureWeekFilterOptions");
+  if(weekBox){
+    weekBox.innerHTML = futureWeeks.map(w=>`
+      <label>
+        <input type="checkbox" value="${escapeHtml(w)}"> ${escapeHtml(w)}
+      </label>
+    `).join("");
+  }
+
+  updateAllMultiFilterButtons();
+  initMultiFilterEvents();
+}
+
+function applyFilters(){
+  const selectedGroups = getCheckedValues("groupMultiFilter");
+  const selectedStatus = getCheckedValues("statusMultiFilter");
+  const selectedFutureStatus = getCheckedValues("futureStatusMultiFilter");
+  const selectedFutureWeeks = getCheckedValues("futureWeekMultiFilter");
+  const selectedPriority = getCheckedValues("priorityMultiFilter");
+  const q = $("searchInput").value.trim().toLowerCase();
+
+  displayRows = resultRows.filter(r=>{
+    const group = r.품목그룹 || "-";
+    const status = r.상태 || "-";
+    const futureStatus = r.미래재고예상 || "-";
+    const futureWeek = r.재고상태변동주차 || "-";
+    const priority = r.우선순위 || "-";
+
+    if(selectedGroups.length && !selectedGroups.includes(group)) return false;
+    if(selectedStatus.length && !selectedStatus.includes(status)) return false;
+    if(selectedFutureStatus.length && !selectedFutureStatus.includes(futureStatus)) return false;
+    if(selectedFutureWeeks.length && !selectedFutureWeeks.includes(futureWeek)) return false;
+    if(selectedPriority.length && !selectedPriority.includes(priority)) return false;
+
+    if(q && !(
+      String(r.SKU).toLowerCase().includes(q) ||
+      String(r.SKU명).toLowerCase().includes(q)
+    )) return false;
+
+    return true;
+  });
+
+  renderTable();
+}
+
+function resultColumns(){
+  return [
+    "SKU 그룹",
+    "SKU",
+    "SKU명",
+    "현재고 상태",
+    "미래재고 예상",
+    "발생 예상주차",
+    "전주대비",
+    "현재 재고",
+    "전주 현재 재고",
+    "전주대비 현재 재고",
+    "현재 재고일수",
+    "전주대비 현재 재고일수",
+    "적정 재고",
+    "적정 재고일수",
+    "발주 우선순위",
+    "부족수량",
+    "발주 제안수량",
+    "전주대비 발주 제안수량",
+    "최근평균출고",
+    "평균FCST",
+    "가중평균 주간수요"
+  ];
+}
+
+function downloadColumns(){
+  const base = [
+    "SKU 그룹",
+    "SKU",
+    "SKU명",
+    "현재고 상태",
+    "미래재고 예상",
+    "발생 예상주차",
+    "전주대비",
+    "현재 재고",
+    "전주 현재 재고",
+    "전주대비 현재 재고",
+    "전주대비 현재 재고일수",
+    "전주대비 발주 제안수량",
+    "현재 재고일수",
+    "최근평균출고",
+    "평균FCST",
+    "가중평균 주간수요",
+    "평균 일수요",
+    "주간수요표준편차",
+    "리드타임수요",
+    "안전재고",
+    "적정 재고",
+    "적정 재고일수",
+    "발주 우선순위",
+    "발주 우선순위 점수",
+    "부족수량",
+    "발주 제안수량"
+  ];
+
+  const weeks = [];
+  fcstWeekCols.forEach(w=>{
+    weeks.push(
+      w + "_입고예정",
+      w + "_FCST",
+      w + "_가중평균수요",
+      w + "_예상재고",
+      w + "_재고일수"
+    );
+  });
+
+  return base.concat(weeks);
+}
+
+function toDisplayRow(r){
+  const out = {
+    "SKU 그룹": r.품목그룹,
+    "SKU": r.SKU,
+    "SKU명": r.SKU명,
+    "현재고 상태": r.상태,
+    "미래재고 예상": r.미래재고예상 || "-",
+    "발생 예상주차": r.재고상태변동주차,
+    "전주대비": r.전주대비,
+    "전주 현재 재고": r.전주현재재고,
+    "전주대비 현재 재고": r.전주대비현재재고,
+    "전주대비 현재 재고일수": r.전주대비현재재고일수,
+    "전주대비 발주 제안수량": r.전주대비발주제안수량,
+    "현재 재고": r.현재재고,
+    "현재 재고일수": r.현재재고일수,
+    "적정 재고": r.적정재고,
+    "적정 재고일수": r.적정재고일수,
+    "발주 우선순위": r.우선순위,
+    "발주 우선순위 점수": r.우선순위점수,
+    "부족수량": r.부족수량,
+    "발주 제안수량": r.추천발주수량,
+    "최근평균출고": r.최근평균출고,
+    "평균FCST": r.평균FCST,
+    "가중평균 주간수요": r.가중평균주간수요,
+    "평균 일수요": r.평균일수요,
+    "주간수요표준편차": r.주간수요표준편차,
+    "리드타임수요": r.리드타임수요,
+    "안전재고": r.안전재고
+  };
+
+  fcstWeekCols.forEach(w=>{
+    out[w + "_입고예정"] = r[w + "_입고예정"];
+    out[w + "_FCST"] = r[w + "_FCST"];
+    out[w + "_가중평균수요"] = r[w + "_가중평균수요"];
+    out[w + "_예상재고"] = r[w + "_예상재고"];
+    out[w + "_재고일수"] = r[w + "_재고일수"];
+  });
+
+  return out;
+}
+
+function statusLabel(value){
+  const v = value || "-";
+
+  if(v === "결품"){
+    return `<span class="status-label status-stockout">${escapeHtml(v)}</span>`;
+  }
+
+  if(v === "정상"){
+    return `<span class="status-label status-normal">${escapeHtml(v)}</span>`;
+  }
+
+  if(v === "부족"){
+    return `<span class="status-label status-short">${escapeHtml(v)}</span>`;
+  }
+
+  if(v === "과잉"){
+    return `<span class="status-label status-over">${escapeHtml(v)}</span>`;
+  }
+
+  if(v === "데이터부족"){
+    return `<span class="status-label status-lack">${escapeHtml(v)}</span>`;
+  }
+
+  return escapeHtml(v);
+}
+
+function renderTable(){
+  const cols = resultColumns();
+  const rows = displayRows.map(toDisplayRow);
+
+  if(!rows || !rows.length){
+    $("resultTable").innerHTML = `
+      <thead>
+        <tr>
+          ${cols.map(c=>`
+            <th class="${tableCellClass(c)}">
+              ${escapeHtml(c)}
+            </th>
+          `).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td colspan="${cols.length}" class="text-cell" style="color:#64748b">
+            표시할 결과가 없습니다. 필터 조건을 확인해 주세요
+          </td>
+        </tr>
+      </tbody>
+    `;
+
+    return;
+  }
+
+  $("resultTable").innerHTML = `
+    <thead>
+      <tr>
+        ${cols.map(c=>`
+          <th class="${tableCellClass(c)}">
+            ${escapeHtml(c)}
+          </th>
+        `).join("")}
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r=>`
+        <tr>
+          ${cols.map(c=>{
+            let v = r[c];
+
+            if(isNumericColumn(c)){
+              v = fmtNumber(v);
+              return `<td class="${tableCellClass(c)}">${escapeHtml(v)}</td>`;
+            }
+
+            if(c === "현재고 상태"){
+              return `<td class="${tableCellClass(c)}">${statusLabel(r["현재고 상태"])}</td>`;
+            }
+
+            if(c === "미래재고 예상"){
+              return `<td class="${tableCellClass(c)}">${statusLabel(r["미래재고 예상"])}</td>`;
+            }
+
+            if(c === "발주 우선순위"){
+              return `<td class="${tableCellClass(c)}">${escapeHtml(r["발주 우선순위"] ?? "")}</td>`;
+            }
+
+            return `<td class="${tableCellClass(c)}">${escapeHtml(v ?? "")}</td>`;
+          }).join("")}
+        </tr>
+      `).join("")}
+    </tbody>
+  `;
+}
+
+function renderChartSku(){
+  const mode=$("chartMode") ? $("chartMode").value : "SKU";
+
+  if(mode==="GROUP"){
+    $("chartTargetLabel").textContent="SKU그룹 선택";
+    const groups=[...new Set(resultRows.map(r=>r.품목그룹||"-"))].sort();
+    $("chartSku").innerHTML=groups.map(g=>
+      `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`
+    ).join("");
+  }else{
+    $("chartTargetLabel").textContent="SKU 선택";
+    $("chartSku").innerHTML=resultRows.map(r=>
+      `<option value="${escapeHtml(r.SKU)}">
+        ${escapeHtml(r.SKU)} / ${escapeHtml(r.SKU명)}
+      </option>`
+    ).join("");
+  }
+}
+
+function getChartData(){
+  const mode=$("chartMode") ? $("chartMode").value : "SKU";
+  const target=$("chartSku").value;
+
+  if(mode==="GROUP"){
+    const rows=resultRows.filter(r=>(r.품목그룹||"-")===target);
+    if(!rows.length) return null;
+
+    const histWeeks=rows[0]._hist4.map(x=>x.week);
+    const fcstWeeks=rows[0]._fcst8.map(x=>x.week);
+
+    const hist=histWeeks.map((w,i)=>({
+      week:w,
+      value:rows.reduce((s,r)=>s+num(r._hist4[i]?.value,0),0)
+    }));
+
+    const fcst=fcstWeeks.map((w,i)=>({
+      week:w,
+      value:rows.reduce((s,r)=>s+num(r._fcst8[i]?.value,0),0)
+    }));
+
+    return {hist,fcst,title:`${target} 그룹`};
+  }
+
+  const r=resultRows.find(x=>x.SKU===target);
+  if(!r) return null;
+
+  return {
+    hist:r._hist4||[],
+    fcst:r._fcst8||[],
+    title:`${r.SKU} / ${r.SKU명}`
+  };
+}
+
+function renderChart(){
+  const data=getChartData();
+  const svg=$("chart");
+  svg.innerHTML="";
+
+  if(!data){
+    $("chartMsg").textContent="표시할 데이터가 없습니다.";
+    return;
+  }
+
+  const hist=data.hist||[];
+  const fcst=data.fcst||[];
+
+  if(!hist.length&&!fcst.length){
+    $("chartMsg").textContent="그래프 데이터가 없습니다.";
+    return;
+  }
+
+  $("chartMsg").textContent=`${data.title} - 파란색: 과거 4주 출고실적 / 주황색: 미래 8주 FCST`;
+
+  const W=svg.clientWidth||900;
+  const H=330;
+  const pad=45;
+
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+
+  const all=hist.concat(fcst);
+  const maxV=Math.max(...all.map(x=>x.value),1);
+  const labels=all.map(x=>x.week);
+  const step=(W-pad*2)/Math.max(labels.length-1,1);
+
+  const x=i=>pad+i*step;
+  const y=v=>H-pad-(v/maxV)*(H-pad*2);
+
+  svg.insertAdjacentHTML("beforeend",`
+    <line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="#94a3b8"/>
+    <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H-pad}" stroke="#94a3b8"/>
+  `);
+
+  labels.forEach((lb,i)=>{
+    svg.insertAdjacentHTML("beforeend",`
+      <text x="${x(i)}" y="${H-16}" font-size="11" text-anchor="middle">${escapeHtml(lb)}</text>
+    `);
+  });
+
+  [0,0.5,1].forEach(t=>{
+    const yy=y(maxV*t);
+    svg.insertAdjacentHTML("beforeend",`
+      <text x="8" y="${yy+4}" font-size="11">${round(maxV*t,0)}</text>
+      <line x1="${pad}" y1="${yy}" x2="${W-pad}" y2="${yy}" stroke="#e5e7eb"/>
+    `);
+  });
+
+  function drawLine(data,offset,color){
+    if(!data.length) return;
+
+    const pts=data.map((d,i)=>`${x(i+offset)},${y(d.value)}`).join(" ");
+
+    svg.insertAdjacentHTML("beforeend",`
+      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3"/>
+    `);
+
+    data.forEach((d,i)=>{
+      svg.insertAdjacentHTML("beforeend",`
+        <circle cx="${x(i+offset)}" cy="${y(d.value)}" r="4" fill="${color}"/>
+      `);
+    });
+  }
+
+  drawLine(hist,0,"#2563eb");
+  drawLine(fcst,hist.length,"#f97316");
+
+  /*
+    과거 실적 마지막 점과 FCST 첫 점을 회색 점선으로 연결
+  */
+  if(hist.length && fcst.length){
+    const lastHist=hist[hist.length-1];
+    const firstFcst=fcst[0];
+
+    svg.insertAdjacentHTML("beforeend",`
+      <line
+        x1="${x(hist.length-1)}"
+        y1="${y(lastHist.value)}"
+        x2="${x(hist.length)}"
+        y2="${y(firstFcst.value)}"
+        stroke="#64748b"
+        stroke-width="2"
+        stroke-dasharray="5 5"
+      />
+    `);
+  }
+}
+
+/* =====================================================
+   XLSX 다운로드 직접 생성
+===================================================== */
+function crc32(bytes){
+  let table=crc32.table;
+  if(!table){
+    table=crc32.table=new Uint32Array(256);
+    for(let i=0;i<256;i++){
+      let c=i;
+      for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);
+      table[i]=c>>>0;
+    }
+  }
+  let crc=0xFFFFFFFF;
+  for(const b of bytes) crc=table[(crc^b)&0xFF]^(crc>>>8);
+  return (crc^0xFFFFFFFF)>>>0;
+}
+
+function u16(n){ return [n&255,(n>>>8)&255]; }
+function u32(n){ return [n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255]; }
+
+function makeZip(files){
+  const enc=new TextEncoder();
+  const localParts=[];
+  const centralParts=[];
+  let offset=0;
+
+  for(const [name,text] of files){
+    const nameBytes=enc.encode(name);
+    const data=enc.encode(text);
+    const crc=crc32(data);
+
+    const local=new Uint8Array([
+      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length), ...u16(0)
+    ]);
+    localParts.push(local,nameBytes,data);
+
+    const central=new Uint8Array([
+      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length),
+      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)
+    ]);
+    centralParts.push(central,nameBytes);
+    offset+=local.length+nameBytes.length+data.length;
+  }
+
+  const centralSize=centralParts.reduce((s,p)=>s+p.length,0);
+  const centralOffset=offset;
+  const end=new Uint8Array([
+    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
+    ...u32(centralSize), ...u32(centralOffset), ...u16(0)
+  ]);
+
+  return new Blob([...localParts,...centralParts,end],{
+    type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+}
+
+function sheetXml(rows){
+  const cols=rows.length?Object.keys(rows[0]):[];
+  const all=[cols, ...rows.map(r=>cols.map(c=>r[c]))];
+
+  function cellRef(r,c){
+    let s="",n=c+1;
+    while(n){
+      const m=(n-1)%26;
+      s=String.fromCharCode(65+m)+s;
+      n=Math.floor((n-1)/26);
+    }
+    return s+r;
+  }
+
+  const xmlRows=all.map((row,ri)=>{
+    const rnum=ri+1;
+    const cells=row.map((v,ci)=>{
+      const ref=cellRef(rnum,ci);
+
+      if(typeof v==="number"&&Number.isFinite(v)){
+        return `<c r="${ref}" s="1"><v>${v}</v></c>`;
+      }
+
+      return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(v)}</t></is></c>`;
+    }).join("");
+
+    return `<row r="${rnum}">${cells}</row>`;
+  }).join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${xmlRows}</sheetData></worksheet>`;
+}
+
+function downloadXlsx(){
+  const resultExport = resultRows.map(r=>{
+    const display = toDisplayRow(r);
+    const o = {};
+
+    downloadColumns().forEach(c=>{
+      const v = display[c];
+
+      if(isNumericColumn(c)){
+        const n = typeof v === "number" ? v : num(v, NaN);
+        o[c] = Number.isFinite(n) ? Math.round(n) : v;
+      }else{
+        o[c] = v;
+      }
+    });
+
+    return o;
+  });
+
+  function buildPsiHeatmapExportRows(){
+    const rows = [];
+
+    resultRows.forEach(r=>{
+      const base = {
+        "SKU그룹": r.품목그룹,
+        "SKU": r.SKU,
+        "SKU명": r.SKU명
+      };
+
+      const stockRow = {
+        ...base,
+        "구분": "예상재고"
+      };
+
+      const daysRow = {
+        ...base,
+        "구분": "재고일수"
+      };
+
+      const statusRow = {
+        ...base,
+        "구분": "상태"
+      };
+
+      const inboundRow = {
+        ...base,
+        "구분": "입고예정"
+      };
+
+      const demandRow = {
+        ...base,
+        "구분": "가중평균수요"
+      };
+
+      fcstWeekCols.forEach(w=>{
+        const display = getPsiDisplayStockDays(r, w);
+        const status = getPsiCellStatus(r, w);
+
+        stockRow[w] = display.stock;
+        daysRow[w] = display.days;
+        statusRow[w] = status;
+        inboundRow[w] = r[w + "_입고예정"];
+        demandRow[w] = r[w + "_가중평균수요"];
+      });
+
+      rows.push(stockRow);
+      rows.push(daysRow);
+      rows.push(statusRow);
+      rows.push(inboundRow);
+      rows.push(demandRow);
+    });
+
+    return rows;
+  }
+
+  function makeStatusSummaryRows(){
+    const currentCount = s => resultRows.filter(r=>r.상태 === s).length;
+    const w4Count = s => resultRows.filter(r=>getW4WorstStatus(r) === s).length;
+
+    const w4Weeks = getW4Weeks();
+    const w4Range = w4Weeks.length
+      ? `${w4Weeks[0]} ~ ${w4Weeks[w4Weeks.length - 1]}`
+      : "-";
+
+    return [
+      {"구분":"당주 현재재고 기준","항목":"총 SKU 수","값":resultRows.length,"비고":"현재재고 기준"},
+      {"구분":"당주 현재재고 기준","항목":"결품 SKU","값":currentCount("결품"),"비고":"현재재고 <= 0"},
+      {"구분":"당주 현재재고 기준","항목":"부족 SKU","값":currentCount("부족"),"비고":"현재 재고일수 < 적정 재고일수"},
+      {"구분":"당주 현재재고 기준","항목":"과잉 SKU","값":currentCount("과잉"),"비고":"현재 재고일수 > 적정 재고일수 x 과잉기준배수"},
+      {"구분":"당주 현재재고 기준","항목":"정상 SKU","값":currentCount("정상"),"비고":"-"},
+      {"구분":"당주 현재재고 기준","항목":"데이터부족 SKU","값":currentCount("데이터부족"),"비고":"-"},
+
+      {"구분":"W+4주 이내 예상 기준","항목":"기준 주차","값":w4Range,"비고":"FCST 첫 주차부터 4개 주차"},
+      {"구분":"W+4주 이내 예상 기준","항목":"총 SKU 수","값":resultRows.length,"비고":"-"},
+      {"구분":"W+4주 이내 예상 기준","항목":"결품 SKU","값":w4Count("결품"),"비고":"W+4 이내 결품 발생 SKU"},
+      {"구분":"W+4주 이내 예상 기준","항목":"부족 SKU","값":w4Count("부족"),"비고":"W+4 이내 부족 발생 SKU"},
+      {"구분":"W+4주 이내 예상 기준","항목":"과잉 SKU","값":w4Count("과잉"),"비고":"W+4 이내 과잉 발생 SKU"},
+      {"구분":"W+4주 이내 예상 기준","항목":"정상 SKU","값":w4Count("정상"),"비고":"W+4 이내 위험 없음"},
+      {"구분":"W+4주 이내 예상 기준","항목":"데이터부족 SKU","값":w4Count("데이터부족"),"비고":"-"}
+    ];
+  }
+
+  const summary = makeStatusSummaryRows();
+
+  const groupSummaryExport = [
+    ...currentGroupSummary.map(g=>({
+      "구분":"당주 현재재고 기준",
+      "SKU그룹":g.품목그룹,
+      "재고일수":g.평균재고일수,
+      "결품":g.결품SKU수,
+      "부족":g.부족SKU수,
+      "과잉":g.과잉SKU수,
+      "정상":g.정상SKU수,
+      "데이터부족":g.데이터부족SKU수,
+      "SKU수":g.SKU수
+    })),
+    ...w4GroupSummary.map(g=>({
+      "구분":"W+4주 이내 예상 기준",
+      "SKU그룹":g.품목그룹,
+      "재고일수":g.W4평균재고일수,
+      "결품":g.결품SKU수,
+      "부족":g.부족SKU수,
+      "과잉":g.과잉SKU수,
+      "정상":g.정상SKU수,
+      "데이터부족":g.데이터부족SKU수,
+      "SKU수":g.SKU수
+    }))
+  ];
+
+  const psiHeatmapExport = buildPsiHeatmapExportRows();
+
+  const validationRows = [
+    ...Object.entries(validation).map(([k,v])=>({
+      "구분":"기본 데이터 검증",
+      "항목":k,
+      "값":v
+    })),
+    ...Object.entries(psiHeatmapValidation).map(([k,v])=>({
+      "구분":"PSI 히트맵-결과 테이블 정합성 검증",
+      "항목":k,
+      "값":v
+    }))
+  ];
+
+  const cfg=currentSettings();
+  const settingRows=[
+    {"항목":"출고실적가중치","값":cfg.histWeight},
+    {"항목":"FCST가중치","값":cfg.fcstWeight},
+    {"항목":"서비스레벨Z","값":cfg.serviceZ},
+    {"항목":"과잉기준배수","값":cfg.overMul},
+    {"항목":"부족기준배수","값":cfg.shortMul},
+    {"항목":"최근실적주수","값":cfg.recentWeeks},
+    {"항목":"FCST사용주수","값":cfg.fcstWeeks}
+  ];
+
+  const sheetNames = [
+    "계산결과",
+    "요약",
+    "SKU그룹별재고일수",
+    "PSI히트맵",
+    "데이터검증",
+    "설정값"
+  ];
+
+  const sheets = [
+    resultExport,
+    summary,
+    groupSummaryExport,
+    psiHeatmapExport.length ? psiHeatmapExport : [
+      {"안내":"PSI히트맵 데이터가 없습니다. 결과 조회 후 다운로드해 주세요."}
+    ],
+    validationRows,
+    settingRows
+  ];
+
+  console.log("다운로드 시트 목록:", sheetNames);
+  console.log("PSI히트맵 행 수:", psiHeatmapExport.length || 0);
+
+  const workbookSheets=sheetNames.map((n,i)=>`<sheet name="${escapeXml(n)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join("");
+  const relsSheets=sheetNames.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join("");
+
+  const files=[
+    ["[Content_Types].xml",`<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+${sheetNames.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}
+</Types>`],
+
+    ["_rels/.rels",`<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`],
+
+    ["xl/workbook.xml",`<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets}</sheets></workbook>`],
+
+    ["xl/_rels/workbook.xml.rels",`<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${relsSheets}
+<Relationship Id="rId${sheetNames.length+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`],
+
+    ["xl/styles.xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="1">
+  <numFmt numFmtId="164" formatCode="#,##0;(#,##0);0"/>
+</numFmts>
+<fonts count="1">
+  <font>
+    <sz val="11"/>
+    <name val="Calibri"/>
+  </font>
+</fonts>
+<fills count="2">
+  <fill>
+    <patternFill patternType="none"/>
+  </fill>
+  <fill>
+    <patternFill patternType="gray125"/>
+  </fill>
+</fills>
+<borders count="1">
+  <border>
+    <left/>
+    <right/>
+    <top/>
+    <bottom/>
+    <diagonal/>
+  </border>
+</borders>
+<cellStyleXfs count="1">
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+</cellStyleXfs>
+<cellXfs count="2">
+  <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+  <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+</cellXfs>
+<cellStyles count="1">
+  <cellStyle name="Normal" xfId="0" builtinId="0"/>
+</cellStyles>
+</styleSheet>`]
+  ];
+
+  sheets.forEach((rows,i)=>files.push([`xl/worksheets/sheet${i+1}.xml`,sheetXml(rows)]));
+
+  const blob=makeZip(files);
+  const a=document.createElement("a");
+  const now = new Date();
+
+  const pad2 = n => String(n).padStart(2, "0");
+
+  const timestamp =
+    now.getFullYear() +
+    pad2(now.getMonth() + 1) +
+    pad2(now.getDate()) + "_" +
+    pad2(now.getHours()) +
+    pad2(now.getMinutes()) +
+    pad2(now.getSeconds());
+
+  a.href = URL.createObjectURL(blob);
+  a.download = `weighted-demand-order-check-result-${timestamp}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* =====================================================
+   이벤트
+===================================================== */
+
+// 결과 조회 버튼
+const runBtn = $("runBtn");
+if(runBtn){
+  runBtn.addEventListener("click", async ()=>{
+    clearMsg();
+
+    try{
+      const file = $("fileInput").files[0];
+      const lastWeekFile = $("lastWeekFileInput")?.files?.[0];
+
+      if(!file){
+        throw new Error("이번주 파일을 선택해 주세요.");
+      }
+
+      if(!file.name.toLowerCase().endsWith(".xlsx")){
+        throw new Error("xlsx 파일만 업로드할 수 있습니다.");
+      }
+
+      if(lastWeekFile && !lastWeekFile.name.toLowerCase().endsWith(".xlsx")){
+        throw new Error("지난주 파일도 xlsx 파일만 업로드할 수 있습니다.");
+      }
+
+      previousWorkbookData = null;
+      previousResultRows = [];
+      previousUploadedFileName = "-";
+      comparisonApplied = false;
+
+      if(lastWeekFile){
+        previousUploadedFileName = lastWeekFile.name;
+
+        previousWorkbookData = await readWorkbook(lastWeekFile);
+        previousWorkbookData = standardizeWorkbook(previousWorkbookData);
+        validateWorkbook(previousWorkbookData);
+
+        const currentBackup = {
+          workbookData,
+          resultRows,
+          displayRows,
+          validation,
+          groupSummary,
+          fcstWeekCols: [...fcstWeekCols],
+          demandWeekCols: [...demandWeekCols],
+          supplyWeekCols: [...supplyWeekCols],
+          uploadedFileName
+        };
+
+        workbookData = previousWorkbookData;
+        uploadedFileName = previousUploadedFileName;
+
+        readSettingsFromSheet(workbookData);
+        calculate();
+
+        previousResultRows = resultRows.map(r=>({...r}));
+
+        workbookData = currentBackup.workbookData;
+        resultRows = currentBackup.resultRows;
+        displayRows = currentBackup.displayRows;
+        validation = currentBackup.validation;
+        groupSummary = currentBackup.groupSummary;
+        fcstWeekCols = currentBackup.fcstWeekCols;
+        demandWeekCols = currentBackup.demandWeekCols;
+        supplyWeekCols = currentBackup.supplyWeekCols;
+        uploadedFileName = currentBackup.uploadedFileName;
+
+        comparisonApplied = true;
+      }
+
+      uploadedFileName = file.name;
+
+      workbookData = await readWorkbook(file);
+      workbookData = standardizeWorkbook(workbookData);
+
+      validateWorkbook(workbookData);
+      readSettingsFromSheet(workbookData);
+
+      calculate();
+
+      showMsg(
+        comparisonApplied
+          ? "계산이 완료되었습니다. PSI 히트맵과 전주대비 비교가 반영되었습니다."
+          : "계산이 완료되었습니다. PSI 히트맵이 반영되었습니다."
+      );
+    }catch(e){
+      showMsg(e.message || String(e), true);
+      console.error(e);
+    }
+  });
+}
+
+// 결과 다운로드 버튼
+const downloadBtn = $("downloadBtn");
+if(downloadBtn){
+  downloadBtn.addEventListener("click", ()=>{
+    if(!resultRows.length){
+      showMsg("다운로드할 결과가 없습니다.", true);
+      return;
+    }
+
+    downloadXlsx();
+  });
+}
+
+// 초기화 버튼
+const resetBtn = $("resetBtn");
+if(resetBtn){
+  resetBtn.addEventListener("click", ()=>{
+    workbookData = null;
+    resultRows = [];
+    displayRows = [];
+    validation = {};
+    groupSummary = [];
+    fcstWeekCols = [];
+    demandWeekCols = [];
+    supplyWeekCols = [];
+    uploadedFileName = "";
+    psiHeatmapValidation = {};
+
+    previousWorkbookData = null;
+    previousResultRows = [];
+    previousUploadedFileName = "-";
+    comparisonApplied = false;
+
+    currentGroupSummary = [];
+    w4GroupSummary = [];
+
+    if($("w4WeekRange")) $("w4WeekRange").innerHTML = "";
+    if($("currentKpis")) $("currentKpis").innerHTML = "";
+    if($("w4Kpis")) $("w4Kpis").innerHTML = "";
+    if($("currentGroupSummaryBox")) $("currentGroupSummaryBox").innerHTML = "";
+    if($("w4GroupSummaryBox")) $("w4GroupSummaryBox").innerHTML = "";
+
+    if($("lastWeekFileInput")) $("lastWeekFileInput").value = "";
+    if($("psiHeatmapTable")) $("psiHeatmapTable").innerHTML = "";
+    if($("psiCellDetail")) $("psiCellDetail").innerHTML = "히트맵 셀을 클릭하세요.";
+    if($("psiHeatmapSearch")) $("psiHeatmapSearch").value = "";
+
+    if($("fileInput")) $("fileInput").value = "";
+    if($("resultTable")) $("resultTable").innerHTML = "";
+    if($("kpis")) $("kpis").innerHTML = "";
+    if($("validationBox")) $("validationBox").innerHTML = "";
+    if($("chart")) $("chart").innerHTML = "";
+    if($("chartSku")) $("chartSku").innerHTML = "";
+    if($("chartMsg")) $("chartMsg").textContent = "";
+    if($("downloadBtn")) $("downloadBtn").disabled = true;
+
+    if($("psiCellDetail")) $("psiCellDetail").hidden = false;
+    if($("togglePsiDetail")) $("togglePsiDetail").textContent = "닫기";
+
+    document.querySelectorAll(".multi-filter input[type=checkbox]").forEach(input=>{
+      input.checked = false;
+    });
+    updateAllMultiFilterButtons();
+
+    clearMsg();
+  });
+}
+
+// 데이터 검증 요약 열기/닫기 버튼
+const toggleValidationBtn = $("toggleValidation");
+if(toggleValidationBtn){
+  toggleValidationBtn.addEventListener("click", ()=>{
+    const box = $("validationBox");
+    if(!box) return;
+
+    const isHidden = box.hidden === true;
+
+    box.hidden = !isHidden;
+    toggleValidationBtn.textContent = isHidden ? "닫기" : "열기";
+  });
+}
+
+// 결과 테이블 필터 이벤트
+const searchInputEl = $("searchInput");
+if(searchInputEl){
+  searchInputEl.addEventListener("input", applyFilters);
+}
+
+// 그래프 조회 방식 변경 이벤트
+const chartModeEl = $("chartMode");
+if(chartModeEl){
+  chartModeEl.addEventListener("change", ()=>{
+    renderChartSku();
+    renderChart();
+  });
+}
+
+// 그래프 SKU 또는 그룹 선택 이벤트
+const chartSkuEl = $("chartSku");
+if(chartSkuEl){
+  chartSkuEl.addEventListener("change", renderChart);
+}
+
+// 설정값 변경 시 재계산
+["serviceZ","overMul","shortMul","recentWeeks","fcstWeeks"].forEach(id=>{
+  const el = $(id);
+  if(el){
+    el.addEventListener("change", ()=>{
+      if(workbookData) calculate();
+    });
+  }
+});
+
+// 출고실적 가중치 슬라이더 표시 및 재계산
+const histWeightEl = $("histWeight");
+if(histWeightEl){
+  histWeightEl.addEventListener("input", ()=>{
+    $("histWeightLabel").textContent = histWeightEl.value + "%";
+    $("fcstWeightLabel").textContent = (100 - Number(histWeightEl.value)) + "%";
+  });
+
+  histWeightEl.addEventListener("change", ()=>{
+    if(workbookData) calculate();
+  });
+}
+
+const togglePsiDetailBtn = $("togglePsiDetail");
+if(togglePsiDetailBtn){
+  togglePsiDetailBtn.addEventListener("click", togglePsiCellDetail);
+}
+</script>
+</body>
+</html>

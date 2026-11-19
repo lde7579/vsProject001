@@ -1,0 +1,8 @@
+# 업무 데이터·결과물은 저장소에 넣지 않는다
+data/
+out/
+.superpowers/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
