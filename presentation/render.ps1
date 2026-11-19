@@ -7,6 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $Pptx = (Resolve-Path $Pptx).Path
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+# PowerPoint COM은 상대 경로를 읽지 못하므로 절대 경로로 바꾼다
+$OutDir = (Resolve-Path $OutDir).Path
 # 이전에 내보낸 장 그림만 지운다(다른 파일은 건드리지 않음)
 Get-ChildItem -Path $OutDir -Filter 'slide-*.png' | ForEach-Object { Remove-Item -LiteralPath $_.FullName }
 

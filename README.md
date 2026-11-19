@@ -120,11 +120,16 @@ uv run python -m safety_stock.weight_search BASE.xlsx --actual ACTUAL.xlsx -o ou
 
 결과 xlsx에서 발표 숫자를 읽어 PPT를 만든다. 숫자는 손으로 적지 않는다. 처음 한 번 `presentation` 폴더에서 `npm install`을 실행한다.
 
+발표 숫자는 기준 파일(보완본)로 돌린 두 결과 파일에서 읽는다. 가상 보완본은 쓰지 않는다(검증 지표는 두 파일에서 같고, 가상 보완은 엑셀 대조 건수에만 영향을 준다).
+
 ```
+uv run python -m safety_stock 보완본.xlsx --actual W44_업로드.xlsx -o out/결과_산출검증.xlsx
+uv run python -m safety_stock.weight_search 보완본.xlsx --actual W44_업로드.xlsx -o out/가중치탐색.xlsx
 uv run python presentation/extract.py
-node presentation/build.js
+node presentation/build.js            # --out 경로로 다른 이름에 쓸 수 있다
 powershell -File presentation/render.ps1
 ```
 
 - 결과: `out/발표_적정재고일수.pptx`(장별 그림은 `out/render/slide-NN.png`)
+- 발표 흐름: AI 가중치 탐색(후보 전체 채점·시계열 검증·과적합 방지)을 중심으로, 사후 검증 결과와 한계(개선이 몰린 그룹, 결품 방어율 하락, 입력 일부 역산)를 함께 싣는다.
 - `presentation/data.json`은 업무 수치라 저장소에서 제외한다(`extract.py`가 다시 만든다).

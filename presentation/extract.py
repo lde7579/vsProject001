@@ -11,10 +11,10 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import re
 import statistics
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from datetime import date
@@ -26,22 +26,16 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'out'
 DATA = ROOT / 'data'
 
-# 발표 기본 수치: 가상 보완 데이터로 돌린 결과
-RESULT_VIRTUAL = OUT / '결과_가상보완.xlsx'
-# 가상 보완 전 결과(전후 비교용)
-RESULT_BEFORE = OUT / '결과_보완본.xlsx'
-# 가상 보완본(바꾼 칸 기록 시트가 들어 있다)
-VIRTUAL_BOOK = DATA / '재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_가상보완.xlsx'
-# 보완본(사진 전사본의 빈 칸을 추정·역산해 채운 파일, 보완내역 시트)
-SUPPLEMENT_BOOK = DATA / '재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사_보완.xlsx'
+# 발표 기본 수치: 기준 파일(빈 칸만 산식·다른 시트로 역산해 채운 파일)로 돌린 결과
+RESULT = OUT / '결과_산출검증.xlsx'
+# 기준 파일(보완내역 시트에 역산해 채운 칸이 기록되어 있다)
+BASE_BOOK = DATA / '재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사_보완.xlsx'
 # 사후 실제 출고 파일(가중치 탐색 그룹별 기여 계산용)
 ACTUAL_BOOK = DATA / 'W44_가중평균수요_반영_상품_발주점검_업로드.xlsx'
 # 가중치 탐색 검증 구간(가중치탐색.xlsx 적용기준과 같은 기본값)
 HOLDOUT_WEEKS = range(39, 44)
 # 가중치 탐색 결과(아직 없을 수 있다)
 SEARCH_DEFAULT = OUT / '가중치탐색.xlsx'
-# 실데이터 엑셀 불일치 고정값이 들어 있는 수용 테스트
-REAL_TEST = ROOT / 'tests' / 'test_real_data.py'
 
 BASES = ['기존수기', '가중평균', '실적기준', 'FCST기준']
 # 재고일수 분포 구간(일). 마지막 구간은 상한 없음
@@ -95,125 +89,19 @@ def metrics(path: Path) -> dict:
     return dict(out)
 
 
-def compare_counts(path: Path) -> dict:
-    """엑셀대조 시트에서 기준별 SKU 판정 개수와 상태별 행 수."""
-    rows = sheet_rows(path, '엑셀대조')
-    verdict = {}
-    for r in rows:
-        verdict[(r['기준'], r['SKU'])] = r['SKU판정']
-    by_basis = {}
-    for b in ['가중평균', '실적기준', 'FCST기준']:
-        c = Counter(v for (bb, _), v in verdict.items() if bb == b)
-        by_basis[b] = {'total': sum(c.values()), **dict(c)}
-    status = Counter(r['상태'] for r in rows)
-    no_calc = sorted({r['SKU'] for r in rows if r['상태'] == '계산값없음'})
-    return {'by_basis': by_basis, 'status': dict(status), 'no_calc_skus': no_calc}
-
-
-def real_findings() -> dict:
-    """tests/test_real_data.py의 상수와 단언에서 실데이터 불일치 고정값을 읽는다."""
-    src = REAL_TEST.read_text(encoding='utf-8')
-    sets = {}
-    for node in ast.parse(src).body:
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Set):
-            sets[node.targets[0].id] = [ast.literal_eval(e) for e in node.value.elts]
-
-    def find(pattern: str) -> tuple[int, ...]:
-        m = re.search(pattern, src)
-        if not m:
-            raise SystemExit(f'{rel(REAL_TEST)}에서 {pattern}를 찾지 못했습니다')
-        return tuple(int(g) for g in m.groups())
-
-    copied = sets['COPIED_FROM_ACTUAL']
+def grades(path: Path) -> dict:
+    """재고등급 시트: 기존 등급과 일치한 수, 등급 분포, 회전율 빈 칸."""
+    rows = sheet_rows(path, '재고등급')
+    blank = [r for r in rows if r['회전율'] is None]
     return {
-        'source': rel(REAL_TEST),
-        'weighted_total': find(r'assert len\(weighted\) == (\d+)')[0],
-        'formula_match': find(r'assert len\(formula_skus\) == (\d+)')[0],
-        'copied_from_actual': len(copied),
-        'copied_etcbid': sum(s.startswith('ETCBID') for s in copied),
-        'copied_flt': sum(s.startswith('FLT') for s in copied),
-        'fcst_blank': len(sets['FCST_BLANK']),
-        'onhand_diff': len(sets['ONHAND_DIFF']),
-        'actual_basis_match': find(r"demand_match\('실적기준'\) == \((\d+), (\d+)\)"),
-        'fcst_basis_match': find(r"demand_match\('FCST기준'\) == \((\d+), (\d+)\)"),
-        'grade_rows': find(r'assert len\(rows\) == (\d+)')[0],
-        'turnover_blank': find(r'turnover is None for g in grades.values\(\)\) == (\d+)')[0],
-    }
-
-
-def virtual_changes() -> dict:
-    """가상보완_내역 시트에서 바꾼 칸 수와 사유별 개수를 센다.
-
-    바꾼 칸은 구분 = '변경'만 센다. '기록만'은 산식으로 채울 수 없어 사유만 남긴 칸이다.
-    """
-    rows = sheet_rows(VIRTUAL_BOOK, '가상보완_내역')
-    require_columns(rows, ['시트', '셀', '구분', '원래 값', '새 값', '사유'], '가상보완_내역')
-    changed = [r for r in rows if r['구분'] == '변경']
-    reasons = Counter(r['사유'] for r in rows)
-    cat = Counter()
-    for r in changed:
-        reason = r['사유']
-        if reason.startswith('산식 결과로 교체(원래 불일치)'):
-            cat['replace_mismatch'] += 1
-        elif reason.startswith('산식 결과로 교체'):
-            cat['replace_blank'] += 1
-        elif reason.startswith('재고등급'):
-            cat['grade_recalc'] += 1
-        elif reason.startswith('회전율 분모 0'):
-            cat['virtual_stock'] += 1
-        elif reason.startswith('가상 재고로 회전율 순위'):
-            cat['rank_population'] += 1
-        else:
-            cat['other'] += 1
-    stock_rows = {re.sub(r'[A-Z]+', '', r['셀']) for r in changed if r['사유'].startswith('회전율 분모 0')}
-    rank_rows = {re.sub(r'[A-Z]+', '', r['셀']) for r in changed if r['사유'].startswith('가상 재고로 회전율 순위')}
-    median_turn = re.search(r'중앙회전율 ([\d.]+)', next((k for k in reasons if k.startswith('회전율 분모 0')), ''))
-    return {
-        'source': rel(VIRTUAL_BOOK) + ' › 가상보완_내역',
-        'total': len(changed),
-        'recorded_only': sum(r['구분'] == '기록만' for r in rows),
-        'replace': cat['replace_mismatch'] + cat['replace_blank'],
-        'replace_mismatch': cat['replace_mismatch'],
-        'replace_blank': cat['replace_blank'],
-        'grade_recalc': cat['grade_recalc'],
-        'virtual_stock': cat['virtual_stock'],
-        'virtual_stock_rows': len(stock_rows),
-        'rank_population': cat['rank_population'],
-        'rank_population_rows': len(rank_rows),
-        'median_turnover': float(median_turn.group(1)) if median_turn else None,
-        'other': cat['other'],
-        'by_sheet': dict(Counter(r['시트'] for r in changed)),
-        'reasons': dict(reasons),
-    }
-
-
-def grades(path_after: Path, path_before: Path) -> dict:
-    """재고등급 시트: 엑셀 일치 수, 등급 분포, 회전율 빈 칸(가상 보완 전)."""
-    after = sheet_rows(path_after, '재고등급')
-    before = sheet_rows(path_before, '재고등급')
-    blank_before = [r for r in before if r['회전율'] is None]
-    blank_skus = {r['SKU'] for r in blank_before}
-    b_by = {r['SKU']: r for r in before}
-    # 가상 재고를 넣지 않은 SKU인데도 회전율 순위 모집단이 바뀌어 등급이 달라진 SKU
-    others = [r for r in after if r['SKU'] not in blank_skus and r['SKU'] in b_by]
-    turn_changed = sorted(r['SKU'] for r in others if r['회전율등급'] != b_by[r['SKU']]['회전율등급'])
-    grade_changed = sorted(r['SKU'] for r in others if r['재고등급'] != b_by[r['SKU']]['재고등급'])
-    return {
-        'unfilled_turnover_grade_changed': turn_changed,
-        'unfilled_grade_changed': grade_changed,
-        'unfilled_grade_changes': [f"{s} {b_by[s]['재고등급']}→{next(r['재고등급'] for r in after if r['SKU'] == s)}"
-                                   for s in grade_changed],
-        'total': len(after),
-        'match': sum(r['판정'] == '일치' for r in after),
-        'verdicts': dict(Counter(r['판정'] for r in after)),
-        'dist': {g: sum(r['재고등급'] == g for r in after) for g in 'ABC'},
-        'not_computable': sum(1 for r in after if (r['메모'] or '').startswith('등급산출불가')),
-        'turnover_blank_before': len(blank_before),
-        'turnover_blank_before_grade': dict(Counter(r['회전율등급'] for r in blank_before)),
-        'turnover_blank_after': sum(r['회전율'] is None for r in after),
-        'match_before': sum(r['판정'] == '일치' for r in before),
-        'total_before': len(before),
-        'groups': dict(Counter(r['품목그룹'] for r in after)),
+        'total': len(rows),
+        'match': sum(r['판정'] == '일치' for r in rows),
+        'verdicts': dict(Counter(r['판정'] for r in rows)),
+        'dist': {g: sum(r['재고등급'] == g for r in rows) for g in 'ABC'},
+        'not_computable': sum(1 for r in rows if (r['메모'] or '').startswith('등급산출불가')),
+        'turnover_blank': len(blank),
+        'turnover_blank_grade': dict(Counter(r['회전율등급'] for r in blank)),
+        'groups': dict(Counter(r['품목그룹'] for r in rows)),
     }
 
 
@@ -390,16 +278,16 @@ def memos(calc: list[dict]) -> dict:
             'order_ok': sum(r['가중평균_발주'] == '정상' for r in calc)}
 
 
-def supplement_changes() -> dict:
-    """보완본의 보완내역 시트: 사진 전사본의 빈 칸을 추정·역산으로 채운 칸 수."""
-    if not SUPPLEMENT_BOOK.exists():
+def supplement_changes() -> dict | None:
+    """기준 파일의 보완내역 시트: 확인되지 않은 빈 칸을 산식·다른 시트 값으로 역산해 채운 칸 수."""
+    if not BASE_BOOK.exists():
         return None
-    rows = sheet_rows(SUPPLEMENT_BOOK, '보완내역')
+    rows = sheet_rows(BASE_BOOK, '보완내역')
     require_columns(rows, ['시트', '셀', '넣은 값', '근거'], '보완내역')
     by_sheet = Counter(r['시트'] for r in rows)
     fcst = [r for r in rows if 'FCST' in str(r['시트'])]
     return {
-        'source': rel(SUPPLEMENT_BOOK) + ' › 보완내역',
+        'source': rel(BASE_BOOK) + ' › 보완내역',
         'total': len(rows),
         'by_sheet': dict(by_sheet),
         'fcst': len(fcst),
@@ -408,6 +296,17 @@ def supplement_changes() -> dict:
         'onhand': sum(n for k, n in by_sheet.items() if '현재고' in k),
         'ending': sum(n for k, n in by_sheet.items() if '기말재고' in k),
     }
+
+
+def test_count() -> int | None:
+    """자동 테스트 개수(pytest --collect-only). 세지 못하면 None."""
+    try:
+        out = subprocess.run([sys.executable, '-m', 'pytest', '--collect-only', '-q'], cwd=ROOT,
+                             capture_output=True, text=True, encoding='utf-8', timeout=300).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r'(\d+) tests? collected', out)
+    return int(m.group(1)) if m else None
 
 
 def holdout_actuals() -> dict[str, float]:
@@ -494,34 +393,23 @@ def main() -> None:
     ap.add_argument('-o', '--out', type=Path, default=ROOT / 'presentation' / 'data.json')
     args = ap.parse_args()
 
-    for p in (RESULT_VIRTUAL, RESULT_BEFORE, VIRTUAL_BOOK, REAL_TEST):
+    for p in (RESULT, BASE_BOOK):
         if not p.exists():
             raise SystemExit(f'입력 파일이 없습니다: {p}')
 
-    calc = sheet_rows(RESULT_VIRTUAL, '산출결과')
-    val_rows = sheet_rows(RESULT_VIRTUAL, '검증_SKU')
+    calc = sheet_rows(RESULT, '산출결과')
+    val_rows = sheet_rows(RESULT, '검증_SKU')
     val = {r['SKU']: r for r in val_rows}
-    crit = criteria(RESULT_VIRTUAL)
-    m_after, m_before = metrics(RESULT_VIRTUAL), metrics(RESULT_BEFORE)
-    g = grades(RESULT_VIRTUAL, RESULT_BEFORE)
+    crit = criteria(RESULT)
+    g = grades(RESULT)
 
     data = {
         'generated': date.today().isoformat(),
-        'sources': {
-            'virtual': rel(RESULT_VIRTUAL), 'before': rel(RESULT_BEFORE),
-            'virtual_book': rel(VIRTUAL_BOOK), 'search': rel(args.search), 'real_test': rel(REAL_TEST),
-        },
+        'sources': {'result': rel(RESULT), 'base_book': rel(BASE_BOOK), 'search': rel(args.search)},
         'criteria': crit,
         'run_date': str(crit.get('실행 시각', ''))[:10],
-        'real': real_findings(),
-        'virtual_changes': virtual_changes(),
-        'compare': {'before': compare_counts(RESULT_BEFORE), 'after': compare_counts(RESULT_VIRTUAL)},
         'grades': g,
-        'metrics': m_after,
-        'metrics_same_as_before': m_after == m_before,
-        # 가상 보완 전후로 값이 달라진 검증요약 칸 수(범위·기준·지표 단위)
-        'metrics_changed_cells': sum(1 for sc in m_after for b in m_after[sc] for k in m_after[sc][b]
-                                     if m_before.get(sc, {}).get(b, {}).get(k) != m_after[sc][b][k]),
+        'metrics': metrics(RESULT),
         'days': days_distribution(calc),
         'case': representative_case(calc, val),
         'counter_case': counter_case(calc, val),
@@ -533,12 +421,9 @@ def main() -> None:
         'weights': group_weights(calc, g['groups']),
         'memos': memos(calc),
         'sku_total': len(calc),
+        'tests': test_count(),
         'weight_search': weight_search(args.search),
     }
-    # 실적기준 값과 같은 SKU의 품목그룹(코드 앞글자와 그룹이 다를 수 있다: ETCBID 코드는 FLT 그룹)
-    copied = ast.literal_eval(re.search(r'COPIED_FROM_ACTUAL = (\{.*?\})', REAL_TEST.read_text(encoding='utf-8'), re.S).group(1))
-    grp = {r['SKU']: r['품목그룹'] for r in calc}
-    data['real']['copied_groups'] = dict(Counter(grp.get(s) or '미분류' for s in copied))
     if data['weight_search'] and ACTUAL_BOOK.exists():
         data['weight_search']['contributions'] = weight_contributions(data['weight_search'], calc, val_rows)
     args.out.parent.mkdir(parents=True, exist_ok=True)
