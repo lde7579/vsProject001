@@ -16,6 +16,10 @@ COMPARE_FIELDS = {
     'target_days': 'target_days',
     'ss_days': 'ss_days',
 }
+# 기준과 무관한 입력값(Summary 표준키 -> SkuInputs 속성). 세 기준 행 모두에서 같은 값으로 대조한다
+COMPARE_INPUT_FIELDS = {
+    'onhand': 'onhand',
+}
 
 
 @dataclass(frozen=True)
@@ -51,8 +55,9 @@ def compare_with_excel(results: list[SkuResult],
             if excel_row is None:
                 continue
             br = res.bases[basis]
-            for key, attr in COMPARE_FIELDS.items():
-                calc = getattr(br, attr)
+            calc_values = {key: getattr(br, attr) for key, attr in COMPARE_FIELDS.items()}
+            calc_values |= {key: getattr(res.inputs, attr) for key, attr in COMPARE_INPUT_FIELDS.items()}
+            for key, calc in calc_values.items():
                 excel = excel_row.get(key)
                 if not _is_number(excel):
                     rows.append(CompareRow(sku, basis, key, calc, None, None, '엑셀값없음'))

@@ -43,3 +43,15 @@ def test_nan_inf_excel_values_are_missing():
     excel = {'가중평균': {'X': {'demand': float('nan'), 'rop': float('inf')}}, '실적기준': {}, 'FCST기준': {}}
     by = {r.field: r for r in compare_with_excel([res], excel)}
     assert by['demand'].status == '엑셀값없음' and by['rop'].status == '엑셀값없음'
+
+
+def test_onhand_difference_makes_mismatch():
+    res = compute_sku(SkuInputs('X', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 1.5, 50, [10, 20, 30, None], [12.0] * 13))
+    w = res.bases['가중평균']
+    same = {'demand': w.demand_week, 'rop': w.rop}
+    excel = {'가중평균': {'X': {**same, 'onhand': 80}}, '실적기준': {'X': {'onhand': 50}}, 'FCST기준': {}}
+    rows = compare_with_excel([res], excel)
+    by = {(r.basis, r.field): r for r in rows}
+    assert by[('가중평균', 'onhand')].calc == 50 and by[('가중평균', 'onhand')].diff == approx(-30)
+    assert by[('가중평균', 'onhand')].status == '불일치' and by[('실적기준', 'onhand')].status == '일치'
+    assert sku_verdicts(rows)[('가중평균', 'X')] == '불일치'

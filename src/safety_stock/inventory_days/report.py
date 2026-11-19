@@ -28,6 +28,7 @@ QTY, DAYS, PCT = '#,##0', '0.0', '0.0%'
 FIELD_LABELS = {
     'demand': '수요', 'sigma': 'σ', 'lt_demand': 'LT평균수요', 'lt_sigma': 'LT수요편차',
     'ss': '안전재고', 'rop': 'ROP', 'target_days': '적정재고일수', 'ss_days': '안전재고일수',
+    'onhand': '현재고',
 }
 ORDER_LABELS = {'ORDER': '발주필요', 'OK': '정상'}
 COVER_LABELS = {True: '방어', False: '결품'}

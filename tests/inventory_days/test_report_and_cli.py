@@ -115,8 +115,8 @@ def test_actual_file_does_not_change_calculation(tmp_path, minimal_books):
 def test_display_labels(tmp_path, minimal_books):
     wb = _run(tmp_path, minimal_books)
     fields = {r[2].value for r in wb['엑셀대조'].iter_rows(min_row=2)}
-    assert fields <= {'수요', 'σ', 'LT평균수요', 'LT수요편차', '안전재고', 'ROP', '적정재고일수', '안전재고일수'}
-    assert '수요' in fields
+    assert fields <= {'수요', 'σ', 'LT평균수요', 'LT수요편차', '안전재고', 'ROP', '적정재고일수', '안전재고일수', '현재고'}
+    assert {'수요', '현재고'} <= fields
     ws = wb['산출결과']
     orders = {ws.cell(row=r, column=_col(ws, '가중평균_발주')).value for r in range(2, ws.max_row + 1)}
     assert orders <= {'발주필요', '정상', None} and orders & {'발주필요', '정상'}
