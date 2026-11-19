@@ -30,3 +30,12 @@ def test_week_order_is_column_order_across_year_boundary(make_wb):
     plan = load_weekly_plan(make_wb({'기말재고': rows}), '기말재고')
     assert plan.week_labels == ['W52(12/21)', 'W53(12/28)', 'W01(01/04)']
     assert first_weeks(plan, 3) == {'SKU1': [1.0, 2.0, 3.0]}
+
+
+def test_sku_header_with_newline(make_wb):
+    rows = [
+        ['품목\nID', 'W35(08/24)'],
+        ['abc', 5],
+    ]
+    plan = load_weekly_plan(make_wb({'SCM FCST': rows}), 'SCM FCST')
+    assert plan.by_sku == {'ABC': [5.0]}

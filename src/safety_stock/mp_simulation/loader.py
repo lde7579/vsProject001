@@ -6,7 +6,9 @@ from safety_stock.common.xlsx import (
     InputError,
     find_header_row,
     find_sheet,
+    header_map,
     norm_sku,
+    require_cols,
     to_number,
 )
 
@@ -26,11 +28,7 @@ def load_weekly_plan(wb, sheet_keyword: str) -> WeeklyPlan:
     ws = find_sheet(wb, sheet_keyword)
     title_row = find_header_row(ws, '품목 ID')
 
-    sku_col = None
-    for cell in ws[title_row]:
-        if cell.value is not None and str(cell.value).replace(' ', '') == '품목ID':
-            sku_col = cell.column
-            break
+    (sku_col,) = require_cols(header_map(ws, title_row), ['품목 ID'], ws.title)
 
     # 열 번호 -> 주차 라벨 (제목 행과 다음 행)
     week_cols: dict[int, str] = {}
@@ -59,6 +57,6 @@ def load_weekly_plan(wb, sheet_keyword: str) -> WeeklyPlan:
 def first_weeks(plan: WeeklyPlan, n: int) -> dict[str, list[float]]:
     """SKU별 앞 n주 값. 빈 칸은 0으로 채우고, 주차가 n개보다 적으면 있는 만큼."""
     return {
-        sku: [0.0 if v is None else v for v in vals[:n]]
+        sku: [0.0 if v is None else v for v in vals[:max(n, 0)]]
         for sku, vals in plan.by_sku.items()
     }
