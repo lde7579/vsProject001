@@ -86,4 +86,5 @@ def test_actual_and_fcst_basis_demand_match(real_run):
 def test_validation_summary_filled(real_run):
     overall = {m.basis: m for m in real_run.metrics if m.scope == '전체'}
     assert set(overall) == set(VALIDATION_BASES)
-    assert overall['가중평균'].n_demand >= 90 and overall['가중평균'].n_lt > 0 and overall['기존수기'].n_lt > 0
+    # Task 7 결정: 실적·FCST 입력이 없는 SKU는 채점 제외(FCST없음 24, 실적없음+FCST없음 15, 실적파일없음 11) → 126 중 76
+    assert overall['가중평균'].n_demand >= 70 and overall['가중평균'].n_lt > 0 and overall['기존수기'].n_lt > 0
