@@ -16,6 +16,7 @@ from safety_stock.virtual_data.build import build_virtual
 DATA = Path(__file__).resolve().parents[1] / 'data'
 BASE = DATA / Path('재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사.xlsx')
 SUPPLEMENT = DATA / '재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_사진전사_보완.xlsx'
+VIRTUAL = DATA / '재고등급_및_안전재고_수준_점검_가중평균수요_적용_20260828_가상보완.xlsx'
 ACTUAL = DATA / Path('W44_가중평균수요_반영_상품_발주점검_업로드.xlsx')
 # 요청자 엑셀의 가중평균 시트에서 값이 실적기준 시트와 똑같은 SKU(ETCBID 3 + FLT 52). 엑셀이 이 품목군에 가중평균 대신 실적기준 값을 넣었다.
 COPIED_FROM_ACTUAL = {'ETCBID3000MF', 'ETCBID3200WH', 'ETCBID6000MF', 'FLTA15C1A1WH', 'FLTA15C1A3WH', 'FLTA15C2ARWH',
@@ -187,3 +188,14 @@ def test_virtual_supplement_real(tmp_path):
     assert {r.status for r in rows} <= {'일치', '계산값없음', '엑셀값없음'}
     assert all(r.calc is None and r.field in ('target_days', 'ss_days') for r in rows if r.status == '엑셀값없음')
     assert {r.sku for r in rows if r.status == '계산값없음'} == {'FLTACPP240WH', 'FLTACL140PWH'}
+
+
+def test_weight_search_real():
+    from safety_stock.weight_search.search import run_search
+    base = VIRTUAL if VIRTUAL.exists() else SUPPLEMENT
+    if not base.exists():
+        pytest.skip('가상 보완본과 보완본이 모두 없다')
+    r = run_search(base, ACTUAL, CalcSettings(), range(35, 39), range(39, 44), range(35, 44))
+    assert {c.group for c in r.choices} >= {'FLT', 'MAT'}
+    assert {c.method for c in r.choices if c.group in ('ACL', 'BID')} == {'공통최적'}
+    assert set(r.metrics) == {('검증', '현재'), ('검증', '탐색'), ('전체구간', '현재'), ('전체구간', '탐색')}
