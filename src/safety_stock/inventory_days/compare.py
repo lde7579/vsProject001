@@ -1,5 +1,6 @@
 """계산 결과와 엑셀 Summary 값 대조. 입출력 없는 순수 함수."""
 from dataclasses import dataclass
+import math
 from decimal import Decimal
 
 from safety_stock.inventory_days.calc import BASES, SkuResult
@@ -29,7 +30,7 @@ class CompareRow:
 
 
 def _is_number(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 def compare_tolerance(excel_value: float) -> float:
@@ -65,12 +66,20 @@ def compare_with_excel(results: list[SkuResult],
 
 
 def sku_verdicts(rows: list[CompareRow]) -> dict[tuple[str, str], str]:
-    """(기준, SKU)별 판정: 필드 중 하나라도 불일치면 '불일치', 아니면 '일치'."""
-    verdicts: dict[tuple[str, str], str] = {}
+    """(기준, SKU)별 판정: '일치' | '불일치' | '비교불가'.
+
+    '불일치' 또는 '계산값없음' 행이 하나라도 있으면 '불일치'(차이를 숨기지 않는다),
+    아니고 '일치' 행이 있으면 '일치', 모두 '엑셀값없음'이면 '비교불가'.
+    """
+    statuses: dict[tuple[str, str], set[str]] = {}
     for r in rows:
-        key = (r.basis, r.sku)
-        if r.status == '불일치':
+        statuses.setdefault((r.basis, r.sku), set()).add(r.status)
+    verdicts = {}
+    for key, st in statuses.items():
+        if st & {'불일치', '계산값없음'}:
             verdicts[key] = '불일치'
+        elif '일치' in st:
+            verdicts[key] = '일치'
         else:
-            verdicts.setdefault(key, '일치')
+            verdicts[key] = '비교불가'
     return verdicts

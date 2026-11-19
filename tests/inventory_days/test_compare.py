@@ -1,7 +1,7 @@
 from pytest import approx
 
 from safety_stock.inventory_days.calc import SkuInputs, compute_sku
-from safety_stock.inventory_days.compare import compare_tolerance, compare_with_excel, sku_verdicts
+from safety_stock.inventory_days.compare import CompareRow, compare_tolerance, compare_with_excel, sku_verdicts
 
 
 def test_compare_tolerance():
@@ -29,4 +29,17 @@ def test_compare_calc_missing_and_sku_not_in_sheet():
     by = {r.field: r for r in rows}
     assert by['rop'].status == '계산값없음' and by['rop'].diff is None
     assert by['demand'].status == '엑셀값없음'  # 둘 다 없으면 엑셀값없음
-    assert sku_verdicts(rows)[('가중평균', 'Y')] == '일치'
+    assert sku_verdicts(rows)[('가중평균', 'Y')] == '불일치'  # 계산값없음은 차이를 숨기지 않는다
+
+
+def test_verdict_not_comparable_when_all_excel_missing():
+    rows = [CompareRow('Z', '가중평균', 'rop', 1.0, None, None, '엑셀값없음'),
+            CompareRow('Z', '가중평균', 'ss', 1.0, None, None, '엑셀값없음')]
+    assert sku_verdicts(rows)[('가중평균', 'Z')] == '비교불가'
+
+
+def test_nan_inf_excel_values_are_missing():
+    res = compute_sku(SkuInputs('X', 'G', 'n', 'B', 0.7, 0.3, 14, 30, 1.5, 50, [10, 20, 30, None], [12.0] * 13))
+    excel = {'가중평균': {'X': {'demand': float('nan'), 'rop': float('inf')}}, '실적기준': {}, 'FCST기준': {}}
+    by = {r.field: r for r in compare_with_excel([res], excel)}
+    assert by['demand'].status == '엑셀값없음' and by['rop'].status == '엑셀값없음'
