@@ -104,7 +104,7 @@ const oldLevels = Object.keys(D.days.old_safety_levels);
 const contrib = WS.contributions ? WS.contributions.groups : null;
 const topContrib = contrib ? Object.entries(contrib).filter(([, v]) => isNum(v.share)).sort((a, b) => b[1].share - a[1].share).slice(0, 2) : [];
 const topContribText = topContrib.map(([g, v]) => `${ga(g)} ${pct(v.share, 0)}`).join(' · ');
-const METHOD = { '그룹최적': '그룹 최적', '공통최적': '전체 합산', '현재유지': '현재 유지' };
+const METHOD = { '그룹최적': '그룹 최적', '공통최적': '전체 합산', '현재유지': '현업 w 유지' };
 // 그룹 오차는 그 그룹의 w에만 달려 있어서 그룹 × 후보 계산으로 전체 조합에서 고른 것과 같은 답을 얻는다
 const CANDS = [...new Set(WS.candidates.map((c) => c.w))].sort((a, b) => a - b);
 const NG = WS.choices.length;
@@ -398,11 +398,13 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     { text: '핵심  ', options: { bold: true, color: '8FC9C9' } },
     { text: '현업이 품목마다 계산할 수 없던 일별 안전재고를 같은 공식으로 품목마다 산출하고, 실제 출고로 채점했습니다', options: { color: C.white } },
   ], MX, 5.72, CW, 0.5, { fill: C.navy, fontSize: 13, bold: true, align: 'left', margin: 12, round: 0.06 });
-  const coverNote = coverDown ? ` · AI 보정 후 방어율도 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}로 낮아져 서비스 수준(Z) 조정이 다음 과제` : '';
+  // 기간이 다른 숫자를 섞지 않도록 AI 보정 수치에는 검증 구간을 붙인다
+  const coverNote = coverDown ? [`AI 보정 후(검증 구간 ${HOLD}) 결품 방어율도 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}로 낮아져 서비스 수준(Z) 조정이 다음 과제`] : [];
   T(s, lines([
     '오차율(WAPE): 실제 출고 합 대비 절대 오차 합의 비율, 낮을수록 좋음',
-    `결품 방어율: 목표재고가 실제 리드타임 수요를 덮은 SKU 비율(실제 결품 기록이 아닌 대리 지표), 높을수록 좋음${coverNote}`,
-  ]), { x: MX, y: 6.36, w: CW, h: 0.6, fontSize: 10, color: C.gray, valign: 'middle', paraSpaceAfter: 2 });
+    '결품 방어율: 목표재고가 실제 리드타임 수요를 덮은 SKU 비율(실제 결품 기록이 아닌 대리 지표), 높을수록 좋음',
+    ...coverNote,
+  ]), { x: MX, y: 6.3, w: CW, h: 0.68, fontSize: 10, color: C.gray, valign: 'middle', paraSpaceAfter: 2 });
 })();
 
 // ======================================================================= 3. 문제
@@ -698,8 +700,9 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     `기존 수기는 ${OLD.distinct}종(${int(OLD.min)}~${int(OLD.max)}일)뿐이지만, 세 기준은 ${BASIS3.map((b) => SB[b].distinct).join('·')}개 값으로 품목마다 달라집니다.`,
   ];
   const others = BASIS3.filter((b) => b !== narrow);
-  if (narrow === '가중평균') notes.push(`가중평균 기준은 P90이 P10의 ${ratio(narrow).toFixed(1)}배로, ${others.map((b) => `${BLABEL[b]} ${ratio(b).toFixed(1)}배`).join('·')}보다 고르게 퍼져 안정적입니다.`);
-  else notes.push(`P90÷P10이 가장 작은 기준은 ${BLABEL[narrow]}(${ratio(narrow).toFixed(1)}배)입니다.`);
+  // 비교 범위는 세 기준뿐이다(기존 수기는 값이 4종이라 배수가 작아도 품목별 값이 아니다)
+  if (narrow === '가중평균') notes.push(`세 기준 중에서는 가중평균 기준이 P90÷P10 ${ratio(narrow).toFixed(1)}배로, ${others.map((b) => `${BLABEL[b]} ${ratio(b).toFixed(1)}배`).join('·')}보다 고르게 퍼져 안정적입니다.`);
+  else notes.push(`세 기준 중 P90÷P10이 가장 작은 기준은 ${BLABEL[narrow]}(${ratio(narrow).toFixed(1)}배)입니다.`);
   if (extreme.length) notes.push(`${extreme.map((b) => BLABEL[b]).join('·')}은 최댓값이 ${extreme.map((b) => f1(SB[b].max) + '일').join('·')}로 극단값이 나옵니다(가중평균 기준 최대 ${f1(SB['가중평균'].max)}일).`);
   notes.push('짧을수록 좋은 것이 아니라, 실제 출고를 덮는지가 기준입니다 → 실제 출고 채점에서 확인');
   const by = ry0 + chartH + 0.36, bh = 6.9 - by;
@@ -766,20 +769,29 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     '방어 = 목표재고가 실제 리드타임 수요를 덮음(대리 지표)',
     '실제 기준 재고일수 = 목표재고 ÷ 실제 일평균 출고',
   ]), { x: rx + 0.25, y: y + 0.58 + 0.55 + 0.44 * 4 + 0.08, w: rw - 0.5, h: 0.55, fontSize: 10, color: C.gray, valign: 'top', paraSpaceAfter: 1 });
-  T(s, `선정 규칙: ${c.rule} (가중평균에 유리한 사례)`, { x: MX, y: y + ph + 0.06, w: CW, h: 0.3, fontSize: 10, color: C.gray, valign: 'middle' });
+  // '유리한 사례' 표시는 가중평균 기준이 실제로 방어한 경우에만 붙인다
+  const favor = c.new_cover === '방어' ? ' (가중평균에 유리한 사례)' : '';
+  T(s, `선정 규칙: ${c.rule}${favor}`,{ x: MX, y: y + ph + 0.06, w: CW, h: 0.3, fontSize: 10, color: C.gray, valign: 'middle' });
   // 아래: 요약과 반대 사례
   const covs = rowsDef.map((r) => r[3]);
   const allOk = covs.every((v) => v === '방어');
-  const fdiff = c.g / c.actual_week - 1;
+  // 실제 출고가 0이면 차이 비율을 쓰지 않는다
+  const fdiff = isNum(c.actual_week) && c.actual_week > 0 ? c.g / c.actual_week - 1 : null;
+  const fnote = isNum(fdiff) ? ` 단, 가중평균 수요는 실제보다 ${pct(Math.abs(fdiff), 0)} ${fdiff >= 0 ? '높았' : '낮았'}습니다.` : '';
   const msg = allOk
-    ? `네 기준 모두 방어했고, 실제 기준 재고일수는 기존 수기 ${f1(c.old_actual_days)}일 → 가중평균 기준 ${f1(c.new_actual_days)}일입니다. 단, 가중평균 수요는 실제보다 ${pct(Math.abs(fdiff), 0)} ${fdiff >= 0 ? '높았' : '낮았'}습니다.`
+    ? `네 기준 모두 방어했고, 실제 기준 재고일수는 기존 수기 ${f1(c.old_actual_days)}일 → 가중평균 기준 ${f1(c.new_actual_days)}일입니다.${fnote}`
     : `방어 결과: ${rowsDef.map((r) => `${BLABEL[r[0]]} ${cv(r[3])}`).join(' · ')}`;
   box(s, msg, MX, 5.62, CW, 0.58, { fill: C.navy, color: C.white, fontSize: 12, bold: true, align: 'left', valign: 'middle', margin: 10, round: 0.06 });
   const ccCovs = [cc.old_cover, cc.new_cover, cc.act_cover, cc.fc_cover];
   const ccAll = ccCovs.every((v) => v === '결품');
+  // 가중평균 수요가 0이면 배수를 쓰지 않는다. '방어 실패'는 가중평균 기준이 실제로 미방어일 때만 쓴다.
+  const ccRatio = isNum(cc.g) && cc.g > 0 && isNum(cc.actual_week) ? `실제 출고가 가중평균 수요의 ${(cc.actual_week / cc.g).toFixed(1)}배여서 ` : '';
+  const ccOut = ccAll ? `${ccRatio}네 기준 모두 방어에 실패했습니다.`
+    : cc.new_cover === '결품' ? `${ccRatio}가중평균 기준은 방어에 실패했습니다.`
+      : `방어 결과는 ${[['기존수기', cc.old_cover], ['가중평균', cc.new_cover], ['실적기준', cc.act_cover], ['FCST기준', cc.fc_cover]].map(([b, v]) => `${BLABEL[b]} ${cv(v)}`).join(' · ')}였습니다.`;
   box(s, [
     { text: '반대 사례  ', options: { bold: true, color: C.white } },
-    { text: `${ga(cc.group)}의 한 품목은 기존 ${cc.old_ss_days}일 → 가중평균 기준 ${f1(cc.s)}일이었고, 실제 출고가 가중평균 수요의 ${(cc.actual_week / cc.g).toFixed(1)}배여서 ${ccAll ? '네 기준 모두' : '가중평균 기준은'} 방어에 실패했습니다.`, options: { color: C.white } },
+    { text: `${ga(cc.group)}의 한 품목은 기존 ${cc.old_ss_days}일 → 가중평균 기준 ${f1(cc.s)}일이었고, ${ccOut}`, options: { color: C.white } },
   ], MX, 6.3, CW, 0.58, { fill: C.red, fontSize: 12, align: 'left', valign: 'middle', margin: 10, round: 0.06 });
 })();
 
@@ -953,116 +965,84 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   ], MX, ny + 0.36, CW, 6.9 - (ny + 0.36), { fill: C.navy, fontSize: 12.5, bold: true, align: 'left', valign: 'middle', margin: 12, round: 0.06 });
 })();
 
-// ======================================================================= 7. AI 기법
-(function aiTech() {
+// ======================================================================= 11. AI 보정: 기법과 탐색 설계
+// 기존 'AI 기법'과 '탐색 설계' 두 장을 합쳤다. 출발점은 현업이 자체 공식으로 산정한 w다.
+(function aiMethod() {
   const s = slide({
-    title: '머신러닝의 모델 선택 방식으로 가중치를 고릅니다',
-    sub: '핵심 기법 세 가지와 받쳐 주는 기법 세 가지 · 각 기법이 왜 필요한가',
-    tagText: 'AI 기법', tagKind: 'teal',
+    title: `현업 w에서 출발해 앞 ${SS_.n}주로 고르고, 뒤 ${HO.n}주로 확인합니다`,
+    sub: '머신러닝의 모델 선택 방식(그리드 탐색 · 시계열 분할 검증 · 과적합 방지)을 가중치 w에 적용',
+    tagText: 'AI 보정', tagKind: 'teal',
   });
-  const big = [
-    ['search', 'Grid Search', '하이퍼파라미터 탐색',
-      `실적 가중치 w를 ${wfmt(CANDS[0])}~${wfmt(CANDS[CANDS.length - 1])} 후보 ${CANDS.length}개로 바꿔 가며 그룹 ${NG}개를 모두 채점합니다`,
-      '사람이 정해 둔 값 대신, 데이터가 가장 잘 맞힌 값을 고르려고', `탐색 공간 ${man(SPACE)} 조합`],
-    ['calendar', 'Time-series Holdout', '시계열 분할 검증',
-      `고르는 구간(${SEL})과 확인 구간(${HOLD})을 시간 순서로 나눠, 확인 구간은 선택에 쓰지 않습니다`,
-      '미래 정보가 선택에 섞이면 성능이 부풀려지므로', '확인 구간은 선택에 미사용'],
-    ['lock', 'Regularization · Pooling', '과적합 방지',
-      `SKU ${MINSKU}개 미만 그룹은 그룹 안의 최솟값 대신 전체를 합쳐 고른 w를 씁니다`,
-      'SKU가 적은 그룹의 우연한 오차에 w가 끌려가지 않게', `작은 그룹 ${SMALL.length}개에 적용`],
-  ];
-  const cw = (CW - 0.4) / 3, ch = 2.95, y = 1.62;
-  big.forEach(([ic, en, ko, body, why, ev], i) => {
-    const x = MX + i * (cw + 0.2);
-    RR(s, x, y, cw, ch, C.light);
-    icon(s, ic, x + 0.22, y + 0.22, 0.66, C.teal);
-    T(s, en, { x: x + 1.02, y: y + 0.2, w: cw - 1.2, h: 0.28, fontSize: 11, color: C.slate, valign: 'middle' });
-    T(s, ko, { x: x + 1.02, y: y + 0.48, w: cw - 1.2, h: 0.42, fontSize: 16.5, bold: true, color: C.navy, valign: 'middle' });
-    T(s, body, { x: x + 0.22, y: y + 1.05, w: cw - 0.44, h: 0.8, fontSize: 12, color: C.text });
-    box(s, [{ text: '왜  ', options: { bold: true, color: C.teal } }, { text: why, options: { color: C.navy, bold: true } }],
-      x + 0.22, y + 1.9, cw - 0.44, 0.55, { fill: C.white, lineColor: C.white, fontSize: 11.5, align: 'left', margin: 6, round: 0.06 });
-    T(s, ev, { x: x + 0.22, y: y + 2.52, w: cw - 0.44, h: 0.32, fontSize: 12, bold: true, color: C.teal, valign: 'middle' });
-  });
-  const small = [
-    ['chart', '통계적 안전재고 모형', `수요 편차·리드타임·서비스 수준으로 품목별 안전재고를 계산 · ${D.sku_total} SKU`],
-    ['flow', 'MLOps 파이프라인', `검사부터 리포트까지 명령 한 번으로 재현 · 자동 테스트 ${int(TESTS)}개`],
-    ['gear', '생성형 AI 개발 에이전트', '설계·코드·테스트·독립 검토는 AI 에이전트가, 판단과 승인은 사람이 맡음'],
-  ];
-  const sy = y + ch + 0.17, sh = 1.2;
-  small.forEach(([ic, a, b], i) => {
-    const x = MX + i * (cw + 0.2);
-    RR(s, x, sy, cw, sh, C.white, { line: { color: C.line, width: 1 } });
-    icon(s, ic, x + 0.2, sy + 0.2, 0.5, C.navy);
-    T(s, a, { x: x + 0.85, y: sy + 0.18, w: cw - 1.0, h: 0.36, fontSize: 13, bold: true, color: C.navy, valign: 'middle' });
-    T(s, b, { x: x + 0.85, y: sy + 0.55, w: cw - 1.0, h: 0.6, fontSize: 10.5, color: C.text });
-  });
-  box(s, [
-    { text: '핵심  ', options: { bold: true, color: '8FC9C9' } },
-    { text: '학습된 예측 모델이 아니라, 머신러닝의 모델 선택(하이퍼파라미터 탐색) 방식을 가중치 w에 적용했습니다. 공식은 가중평균 그대로라 결과를 설명할 수 있습니다.', options: { color: C.white } },
-  ], MX, sy + sh + 0.15, CW, 0.56, { fill: C.navy, fontSize: 12.5, bold: true, align: 'left', margin: 12, round: 0.06 });
-})();
-
-// ======================================================================= 8. 탐색 설계
-(function wsMethod() {
-  const s = slide({
-    title: `탐색 설계: 앞 ${SS_.n}주로 고르고 뒤 ${HO.n}주로 확인합니다`,
-    sub: `계산 시점의 값은 그대로 두고, 그 뒤 실제 출고를 선택 구간(${SEL})과 검증 구간(${HOLD})으로 나눴습니다`,
-    tagText: '탐색 설계', tagKind: 'light',
-  });
+  // 위: 주차 타임라인
   const LAST = Math.max(FCST_END, HO.b);
   const x0 = MX + 0.2, x1 = W - MX - 0.2, wk = (x1 - x0) / LAST, X = (w) => x0 + (w - 1) * wk;
-  const y = 2.05;
-  T(s, '주차', { x: MX - 0.05, y: y - 0.35, w: 1, h: 0.28, fontSize: 10.5, color: C.gray });
-  box(s, `출고 실적 ${HIST} (계산 입력)`, X(HS.a), y, X(HS.b + 1) - X(HS.a) - 0.03, 0.5, { fill: C.mute, color: C.white, bold: true, fontSize: 12, margin: 0 });
-  if (SS_.a > HS.b + 1) box(s, '미사용', X(HS.b + 1), y, X(SS_.a) - X(HS.b + 1) - 0.03, 0.5, { fill: 'E6EBF0', color: C.gray, fontSize: 10, margin: 0 });
-  box(s, lines(['선택 구간', SEL]), X(SS_.a), y, X(SS_.b + 1) - X(SS_.a) - 0.03, 0.5, { fill: C.amber, color: C.white, bold: true, fontSize: 10.5, margin: 0 });
-  box(s, lines(['검증 구간', HOLD]), X(HO.a), y, X(HO.b + 1) - X(HO.a) - 0.03, 0.5, { fill: C.teal, color: C.white, bold: true, fontSize: 10.5, margin: 0 });
-  box(s, `예측(${FW}주) ${wr(`W${SS_.a}~W${FCST_END}`)} (계산 입력)`, X(SS_.a), y + 0.6, X(FCST_END + 1) - X(SS_.a), 0.36, { fill: 'EFE3CB', color: '8A6420', bold: true, fontSize: 10.5, margin: 0 });
-  line(s, X(SS_.a) - 0.015, y - 0.15, 0, 1.25, C.red, { width: 1.5, dashType: 'dash' });
-  T(s, '계산 시점', { x: X(SS_.a) - 1.75, y: y + 0.62, w: 1.7, h: 0.32, fontSize: 10.5, bold: true, color: C.red, align: 'right', valign: 'middle' });
-  [...new Set([HS.a, 10, 20, HS.b, SS_.a, HO.a, HO.b, FCST_END])].forEach((w) => T(s, `W${String(w).padStart(2, '0')}`, { x: X(w) - 0.3 + wk / 2, y: y + 1.0, w: 0.6, h: 0.24, fontSize: 10, color: C.gray, align: 'center' }));
-  const rules = [
-    ['후보', `실적 가중치 w ${wfmt(CANDS[0])}~${wfmt(CANDS[CANDS.length - 1])}을 ${wfmt(CSTEP)} 간격으로 ${CANDS.length}개, 예측 가중치는 1 − w`],
-    ['단위', '품목그룹마다 w 하나 (그룹 안 모든 품목에 같은 값)'],
-    ['고르는 기준', '선택 구간 가중평균 오차율이 가장 낮은 w (같으면 현재 w 쪽)'],
-    ['작은 그룹', `선택 구간 SKU ${MINSKU}개 미만이면 전체를 합쳐 고른 w (과적합 방지)`],
+  const y = 1.92;
+  T(s, '주차', { x: MX - 0.05, y: y - 0.3, w: 1, h: 0.26, fontSize: 10.5, color: C.gray });
+  box(s, `출고 실적 ${HIST} (계산 입력)`, X(HS.a), y, X(HS.b + 1) - X(HS.a) - 0.03, 0.46, { fill: C.mute, color: C.white, bold: true, fontSize: 12, margin: 0 });
+  if (SS_.a > HS.b + 1) box(s, '미사용', X(HS.b + 1), y, X(SS_.a) - X(HS.b + 1) - 0.03, 0.46, { fill: 'E6EBF0', color: C.gray, fontSize: 10, margin: 0 });
+  box(s, lines(['선택 구간', SEL]), X(SS_.a), y, X(SS_.b + 1) - X(SS_.a) - 0.03, 0.46, { fill: C.amber, color: C.white, bold: true, fontSize: 10, margin: 0 });
+  box(s, lines(['검증 구간', HOLD]), X(HO.a), y, X(HO.b + 1) - X(HO.a) - 0.03, 0.46, { fill: C.teal, color: C.white, bold: true, fontSize: 10, margin: 0 });
+  box(s, `예측(${FW}주) ${wr(`W${SS_.a}~W${FCST_END}`)} (계산 입력)`, X(SS_.a), y + 0.54, X(FCST_END + 1) - X(SS_.a), 0.32, { fill: 'EFE3CB', color: '8A6420', bold: true, fontSize: 10, margin: 0 });
+  line(s, X(SS_.a) - 0.015, y - 0.12, 0, 1.0, C.red, { width: 1.5, dashType: 'dash' });
+  T(s, '계산 시점', { x: X(SS_.a) - 1.75, y: y + 0.54, w: 1.7, h: 0.32, fontSize: 10.5, bold: true, color: C.red, align: 'right', valign: 'middle' });
+  [...new Set([HS.a, 10, 20, HS.b, SS_.a, HO.a, HO.b, FCST_END])].forEach((w) => T(s, `W${String(w).padStart(2, '0')}`, { x: X(w) - 0.3 + wk / 2, y: y + 0.9, w: 0.6, h: 0.22, fontSize: 9.5, color: C.gray, align: 'center' }));
+  // 가운데: 핵심 기법 카드 3개
+  const cards = [
+    ['search', 'Grid Search', '그리드 탐색',
+      `실적 가중치 w ${wfmt(CANDS[0])}~${wfmt(CANDS[CANDS.length - 1])}, ${wfmt(CSTEP)} 간격 후보 ${CANDS.length}개를 품목그룹마다 모두 채점`,
+      `탐색 공간 ${man(SPACE)} 조합`],
+    ['calendar', 'Time-series Holdout', '시계열 분할 검증',
+      `선택 구간(${SEL}) 오차율이 가장 낮은 w를 고르고, 검증 구간(${HOLD})은 확인에만 씀`,
+      '미래 정보가 선택에 안 섞임'],
+    ['lock', 'Regularization · Pooling', '과적합 방지',
+      `선택 구간 SKU ${MINSKU}개 미만 그룹은 전체를 합쳐 고른 w를 씀`,
+      `작은 그룹 ${SMALL.length}개에 적용`],
   ];
-  const cw = 3.55, ch = 1.12;
-  rules.forEach(([a, b], i) => {
-    const x = MX + (i % 2) * (cw + 0.2), yy = 3.55 + Math.floor(i / 2) * (ch + 0.18);
-    RR(s, x, yy, cw, ch, C.light);
-    num(s, i + 1, x + 0.18, yy + 0.18, 0.42, C.navy, C.white, 13);
-    T(s, a, { x: x + 0.72, y: yy + 0.14, w: cw - 0.9, h: 0.36, fontSize: 13, bold: true, color: C.navy, valign: 'middle' });
-    T(s, b, { x: x + 0.72, y: yy + 0.5, w: cw - 0.9, h: 0.58, fontSize: 11, color: C.text });
+  const cy = 3.22, ch = 2.28, rbw = 3.55;
+  const cw = (CW - rbw - 0.3 - 0.4) / 3;
+  cards.forEach(([ic, en, ko, body, ev], i) => {
+    const x = MX + i * (cw + 0.2);
+    RR(s, x, cy, cw, ch, C.light);
+    icon(s, ic, x + 0.18, cy + 0.18, 0.56, C.teal);
+    T(s, en, { x: x + 0.86, y: cy + 0.16, w: cw - 0.96, h: 0.26, fontSize: 10, color: C.slate, valign: 'middle' });
+    T(s, ko, { x: x + 0.86, y: cy + 0.42, w: cw - 0.96, h: 0.36, fontSize: 15, bold: true, color: C.navy, valign: 'middle' });
+    T(s, body, { x: x + 0.2, y: cy + 0.9, w: cw - 0.4, h: 0.95, fontSize: 11.5, color: C.text });
+    T(s, ev, { x: x + 0.2, y: cy + ch - 0.42, w: cw - 0.4, h: 0.3, fontSize: 11.5, bold: true, color: C.teal, valign: 'middle' });
   });
-  box(s, `왜 앞뒤로 나눴나: 과거 시점의 예측 기록이 없어 계산 시점 이후 출고만 쓸 수 있습니다. W${SS_.b}에 다시 고르는 상황을 흉내 낸 것이라 실제 운영보다 낙관적일 수 있습니다.`,
-    MX, 6.12, 2 * cw + 0.2, 0.66, { fill: C.amberL, fontSize: 11, align: 'left', margin: 8, round: 0.06 });
-  // 오른쪽: 분해 가능성 설명
-  const tx = MX + 2 * cw + 0.5, tw = W - MX - tx, ty = 3.55, th = 6.78 - ty;
-  RR(s, tx, ty, tw, th, C.navy);
-  T(s, `왜 ${CANDS.length * NG}번 계산으로 ${man(SPACE)} 조합의 최적을 얻나`, { x: tx + 0.25, y: ty + 0.1, w: tw - 0.5, h: 0.62, fontSize: 13.5, bold: true, color: C.white, valign: 'middle' });
-  const cx = tx + 0.25, cwid = (tw - 0.75) / 2;
-  box(s, [{ text: '모든 조합', options: { fontSize: 11, color: C.sky, breakLine: true } }, { text: `${CANDS.length}의 ${NG}제곱`, options: { fontSize: 13, bold: true, color: C.white, breakLine: true } }, { text: `= ${man(SPACE)}`, options: { fontSize: 15, bold: true, color: C.white } }],
-    cx, ty + 0.82, cwid, 1.0, { fill: C.navy2, round: 0.06, margin: 3 });
-  box(s, [{ text: '실제 계산', options: { fontSize: 11, color: '8FC9C9', breakLine: true } }, { text: `${CANDS.length} × ${NG}`, options: { fontSize: 13, bold: true, color: C.white, breakLine: true } }, { text: `= ${CANDS.length * NG}번`, options: { fontSize: 15, bold: true, color: C.white } }],
-    cx + cwid + 0.25, ty + 0.82, cwid, 1.0, { fill: C.teal, round: 0.06, margin: 3 });
-  T(s, lines([
-    '전체 오차(절대 오차의 합)는 그룹별 오차의 합이고, 각 그룹 오차는 그 그룹의 w에만 달려 있습니다.',
-    '그래서 그룹마다 따로 최적 w를 고르면 모든 조합을 비교한 답과 같습니다.',
-    `단, SKU ${MINSKU}개 미만 그룹은 과적합 방지를 위해 이 값 대신 전체 합산 w를 일부러 씁니다.`,
-  ]), { x: tx + 0.25, y: ty + 1.88, w: tw - 0.5, h: th - 2.0, fontSize: 10.5, color: C.white, paraSpaceAfter: 3, valign: 'top' });
+  // 오른쪽: 77번 계산 = 1,949만 조합
+  const tx = MX + 3 * cw + 0.4 + 0.3, tw = W - MX - tx;
+  RR(s, tx, cy, tw, ch, C.navy);
+  T(s, `왜 ${CANDS.length * NG}번 계산으로 전체 최적을 얻나`, { x: tx + 0.2, y: cy + 0.08, w: tw - 0.4, h: 0.5, fontSize: 13, bold: true, color: C.white, valign: 'middle' });
+  const bw2 = (tw - 0.55) / 2;
+  box(s, [{ text: `모든 조합 ${CANDS.length}의 ${NG}제곱`, options: { fontSize: 10, color: C.sky, breakLine: true } }, { text: `= ${man(SPACE)}`, options: { fontSize: 14, bold: true, color: C.white } }],
+    tx + 0.2, cy + 0.64, bw2, 0.62, { fill: C.navy2, round: 0.06, margin: 2 });
+  box(s, [{ text: `실제 계산 ${CANDS.length} × ${NG}`, options: { fontSize: 10, color: '8FC9C9', breakLine: true } }, { text: `= ${CANDS.length * NG}번`, options: { fontSize: 14, bold: true, color: C.white } }],
+    tx + 0.35 + bw2, cy + 0.64, bw2, 0.62, { fill: C.teal, round: 0.06, margin: 2 });
+  T(s, '전체 오차는 그룹별 오차의 합이고, 그룹 오차는 그 그룹의 w에만 달려 있어 그룹마다 따로 고르면 모든 조합을 비교한 답과 같습니다.',
+    { x: tx + 0.2, y: cy + 1.34, w: tw - 0.4, h: ch - 1.42, fontSize: 10.5, color: C.white, valign: 'middle' });
+  // 아래: 출발점 = 현업 w, 받쳐 주는 기법 한 줄
+  const tieCur = /현재 가중치에 가까운/.test(String(SRCH['동점 규칙'] || ''));
+  box(s, [
+    { text: '출발점 = 현업 w  ', options: { bold: true, color: C.teal } },
+    { text: `현업이 그룹별 자체 공식으로 산정한 w(${WRANGE})를 기준선으로 두고, 후보를 모두 채점해 더 맞는 w가 있는지 데이터로 확인·보정합니다${tieCur ? '(오차가 같으면 현업 w 쪽)' : ''}.`, options: { color: C.navy } },
+  ], MX, 5.68, CW, 0.62, { fill: C.tealL, fontSize: 12.5, bold: true, align: 'left', margin: 12, round: 0.06 });
+  T(s, [
+    { text: '받쳐 주는 기법  ', options: { bold: true, color: C.slate } },
+    { text: `통계적 안전재고 모형(Z·σ·√LT) · 검사부터 리포트까지 한 번에 재현하는 파이프라인(자동 테스트 ${int(TESTS)}개) · 생성형 AI 개발 에이전트(판단·승인은 사람)`, options: { color: C.gray } },
+  ], { x: MX, y: 6.42, w: CW, h: 0.42, fontSize: 10.5, valign: 'middle' });
 })();
 
-// ======================================================================= 9. 후보 전체 채점(히트맵)
+// ======================================================================= 12. 탐색 히트맵
 (function wsHeatmap() {
   const s = slide({
     title: `후보 ${CANDS.length}개를 모두 채점해 그룹별 최적 w를 골랐습니다`,
-    sub: `선택 구간 ${SEL}의 가중평균 수요 오차율 · 행 안에서 오차가 작을수록 진한 청록 · ★ 선택 · ○ 현재`,
-    tagText: '탐색 과정', tagKind: 'teal',
+    sub: `선택 구간 ${SEL}의 가중평균 수요 오차율 · 행 안에서 오차가 작을수록 진한 청록 · ★ 선택 · ○ 현업 w`,
+    tagText: 'AI 보정', tagKind: 'teal',
   });
   const rowsDef = [{ key: '전체', label: '전체 합산', choice: null }, ...choicesSorted.map((c) => ({ key: c.group, label: ga(c.group), choice: c }))];
   const pooled = WS.candidates.filter((c) => c.scope === '전체' && isNum(c.wape));
   const pooledBest = pooled.reduce((a, b) => (b.wape < a.wape ? b : a)).w;
+  const cand = (scope, w) => WS.candidates.find((c) => c.scope === scope && c.w === w);
   const lx = MX, nx = MX + 1.2, x0 = MX + 1.9, rcw = 1.6;
   const cw = (CW - 1.9 - rcw - 0.1) / CANDS.length;
   const rx = x0 + cw * CANDS.length + 0.1;
@@ -1070,12 +1050,12 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   T(s, '그룹', { x: lx, y: 1.95, w: 1.15, h: 0.32, fontSize: 11.5, bold: true, color: C.navy, valign: 'middle' });
   T(s, 'SKU', { x: nx, y: 1.95, w: 0.65, h: 0.32, fontSize: 11.5, bold: true, color: C.navy, align: 'center', valign: 'middle' });
   CANDS.forEach((w, j) => T(s, wfmt(w), { x: x0 + j * cw, y: 1.95, w: cw, h: 0.32, fontSize: 11.5, bold: true, color: C.slate, align: 'center', valign: 'middle' }));
-  T(s, '현재 → 선택', { x: rx, y: 1.95, w: rcw, h: 0.32, fontSize: 11.5, bold: true, color: C.navy, align: 'center', valign: 'middle' });
+  T(s, '현업 → 선택', { x: rx, y: 1.95, w: rcw, h: 0.32, fontSize: 11.5, bold: true, color: C.navy, align: 'center', valign: 'middle' });
   const PAL = [[C.teal, C.white], ['5FA8A8', C.white], ['A8D3D3', C.navy], [C.tealL, C.navy], ['F3F5F7', C.slate]];
   const rh = 0.4, rs = 0.44, y0 = 2.34;
   rowsDef.forEach((r, i) => {
     const y = y0 + i * rs;
-    const cells = CANDS.map((w) => WS.candidates.find((c) => c.scope === r.key && c.w === w));
+    const cells = CANDS.map((w) => cand(r.key, w));
     const vals = cells.filter((c) => c && isNum(c.wape)).map((c) => c.wape);
     const mn = Math.min(...vals), mx = Math.max(...vals);
     const chosen = r.choice ? r.choice.chosen : pooledBest;
@@ -1104,95 +1084,64 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   const ny = y0 + rowsDef.length * rs + 0.04;
   T(s, `* SKU ${MINSKU}개 미만 그룹은 그룹 안의 최솟값 대신 전체 합산 최적 w(${wfmt(pooledBest)})를 씁니다 (과적합 방지) · 색은 행 안에서만 비교 · SKU = 선택 구간 채점 수`,
     { x: MX, y: ny, w: CW, h: 0.3, fontSize: 10.5, color: C.gray, valign: 'middle' });
-  // 읽는 법: 끝값(0.0 예측만 / 1.0 실적만)을 고른 그룹
-  const ends = choicesSorted.filter((c) => c.method === '그룹최적' && (c.chosen === 0 || c.chosen === 1));
-  const toHist = ends.filter((c) => c.chosen === 1).map((c) => c.group);
-  const toFcst = ends.filter((c) => c.chosen === 0).map((c) => c.group);
-  const parts = [];
-  if (toHist.length) parts.push(`${aliasLetters(toHist)}는 ${wfmt(1)}(실적만)`);
-  if (toFcst.length) parts.push(`${aliasLetters(toFcst)}는 ${wfmt(0)}(예측만)`);
+  // 읽는 법: SKU가 충분한 그룹마다 현업 w와 선택 w의 선택 구간 오차율 차이를 data로 계산해 적는다
+  // 차이가 NEAR(1.0%p) 이하이면 '현업 w가 최적 근처'로 본다. 차이는 화면에 보이는 반올림 값끼리 뺀다.
+  const NEAR = 1.0;
+  const gaps = choicesSorted.filter((c) => c.method === '그룹최적').map((c) => {
+    const a = cand(c.group, c.current), z = cand(c.group, c.chosen);
+    const wa = a && isNum(a.wape) ? a.wape : c.wape_current, wz = z && isNum(z.wape) ? z.wape : c.wape_chosen;
+    const d = isNum(wa) && isNum(wz) ? (Math.round(wa * 1000) - Math.round(wz * 1000)) / 10 : null;
+    return { g: c.group, d };
+  }).filter((r) => isNum(r.d));
+  const near = gaps.filter((r) => r.d <= NEAR), far = gaps.filter((r) => r.d > NEAR);
+  const gtxt = (arr) => arr.map((r) => `${ga(r.g)} ${r.d.toFixed(1)}%p`).join(' · ');
+  let msg;
+  if (near.length && far.length) msg = `SKU ${MINSKU}개 이상 그룹 중 ${gtxt(near)} 차이로 현업 w가 이미 최적 근처였고, ${gtxt(far)} 차이로 보정 여지가 컸습니다.`;
+  else if (near.length) msg = `SKU ${MINSKU}개 이상 그룹은 ${gtxt(near)} 차이로 모두 현업 w가 최적 근처였습니다.`;
+  else if (far.length) msg = `SKU ${MINSKU}개 이상 그룹은 ${gtxt(far)} 차이로 보정 여지가 있었습니다.`;
+  else msg = '그룹마다 오차가 가장 낮은 w가 다릅니다.';
+  msg += ` 단, ${SS_.n}주로 고른 값이라 다음 장의 검증 구간에서 다시 확인합니다.`;
   box(s, [
     { text: '읽는 법  ', options: { bold: true, color: '8FC9C9' } },
-    // 그룹 최적을 쓴 그룹이 모두 끝값을 골랐을 때만 '모두 한쪽만'이라고 쓴다
-    { text: parts.length && ends.length === choicesSorted.filter((c) => c.method === '그룹최적').length
-      ? `SKU ${MINSKU}개 이상 그룹은 섞는 것보다 한쪽만 쓰는 편이 선택 구간에서 더 맞았습니다: ${parts.join(', ')}. 단, ${SS_.n}주로 고른 값이라 다음 장의 검증 구간에서 다시 확인합니다.`
-      : `그룹마다 오차가 가장 낮은 w가 다릅니다. ${SS_.n}주로 고른 값이라 다음 장의 검증 구간에서 다시 확인합니다.`, options: { color: C.white } },
-  ], MX, ny + 0.4, CW, 0.66, { fill: C.navy, fontSize: 12, bold: true, align: 'left', margin: 12, round: 0.06 });
+    { text: msg, options: { color: C.white } },
+  ], MX, ny + 0.4, CW, 6.9 - (ny + 0.4), { fill: C.navy, fontSize: 12.5, bold: true, align: 'left', margin: 12, round: 0.06 });
 })();
 
-// ======================================================================= 10. 결과 1
-(function result1() {
+// ======================================================================= 13. AI 보정 결과(검증 구간)
+// 기존 '결과 KPI'와 '그룹별 감소 몫' 두 장을 합쳤다. 나빠진 지표(결품 방어율)도 함께 보인다.
+(function wsResult() {
   const s = slide({
-    title: `검증 구간 오차율 ${pct(wsCur.wape)} → ${pct(wsNew.wape)}`,
-    sub: `고를 때 쓰지 않은 ${HOLD}(${HO.n}주) · 전체 ${NHOLD} SKU · 현재 w → AI 탐색 w`,
-    tagText: '결과', tagKind: 'dark',
+    title: `AI 보정 후 검증 구간 오차율 ${pct(wsCur.wape)} → ${pct(wsNew.wape)}`,
+    sub: `검증 구간 ${HOLD}(${HO.n}주, 고를 때 미사용) · ${NHOLD} SKU · 현업 w → 보정 w · 감소 몫 = 전체 오차 감소분 중 그 그룹의 몫`,
+    tagText: 'AI 보정 결과', tagKind: 'dark',
   });
+  // 왼쪽: 핵심 지표 3개(세로)
+  const lw = 4.25, y = 1.62, kh = 1.02, kg = 0.1;
   const kp = [
-    ['가중평균 수요 오차율', 'wape', true, (v) => pct(v), '낮을수록 좋음'],
-    ['결품 방어율', 'cover', false, (v) => pct(v), '높을수록 좋음 · 대리 지표'],
-    ['실제 기준 재고일수 중앙값', 'days_median', null, (v) => f1(v) + '일', '목표재고 ÷ 실제 출고'],
+    ['가중평균 수요 오차율', '낮을수록 좋음', 'wape', true, (v) => pct(v)],
+    ['결품 방어율', '높을수록 좋음 · 대리 지표', 'cover', false, (v) => pct(v)],
+    ['실제 기준 재고일수 중앙값', '참고', 'days_median', null, (v) => f1(v) + '일'],
   ];
-  const cw = (CW - 0.4) / 3, y = 1.72, h = 2.2;
-  kp.forEach(([l, key, lowGood, f, note], i) => {
-    const x = MX + i * (cw + 0.2);
+  kp.forEach(([l, how, key, lowGood, f], i) => {
+    const ky = y + i * (kh + kg);
     const a = wsCur[key], z = wsNew[key];
     let col = C.navy;
     if (lowGood !== null && isNum(a) && isNum(z) && a !== z) col = ((z < a) === lowGood) ? C.teal : C.red;
     const bad = col === C.red;
-    RR(s, x, y, cw, h, bad ? C.redL : i === 0 ? C.tealL : C.light);
-    T(s, l, { x: x + 0.3, y: y + 0.18, w: cw - 0.6, h: 0.38, fontSize: 14, bold: true, color: C.navy, valign: 'middle' });
-    T(s, [{ text: f(a), options: { color: C.slate } }, { text: ' → ', options: { color: C.slate } }, { text: f(z), options: { color: col } }],
-      { x: x + 0.3, y: y + 0.62, w: cw - 0.6, h: 0.8, fontSize: 30, bold: true, valign: 'middle' });
+    RR(s, MX, ky, lw, kh, bad ? C.redL : i === 0 ? C.tealL : C.light);
+    T(s, [{ text: l, options: { bold: true, color: C.navy, fontSize: 12.5 } }, { text: `  ${how}`, options: { color: C.gray, fontSize: 9.5 } }],
+      { x: MX + 0.2, y: ky + 0.08, w: lw - (bad ? 1.1 : 0.4), h: 0.32, valign: 'middle' });
+    if (bad) box(s, '나빠짐', MX + lw - 0.92, ky + 0.1, 0.74, 0.28, { round: 0.14, fill: C.red, color: C.white, fontSize: 10, bold: true, margin: 0 });
+    T(s, [{ text: `${f(a)} → `, options: { color: C.slate } }, { text: f(z), options: { color: col } }],
+      { x: MX + 0.2, y: ky + 0.44, w: lw - 1.5, h: 0.5, fontSize: 22, bold: true, valign: 'middle' });
     const diff = key === 'days_median'
       ? `${z - a >= 0 ? '+' : '−'}${f1(Math.abs(z - a))}일`
       : `${z >= a ? '+' : '−'}${pp(Math.max(a, z), Math.min(a, z))}`;
-    T(s, diff, { x: x + 0.3, y: y + 1.45, w: 1.5, h: 0.36, fontSize: 15, bold: true, color: col, valign: 'middle' });
-    T(s, note, { x: x + 1.7, y: y + 1.45, w: cw - 2.0, h: 0.36, fontSize: 11, color: C.gray, valign: 'middle', align: 'right' });
-    if (bad) box(s, '나빠짐', x + cw - 1.05, y + 0.2, 0.8, 0.3, { round: 0.15, fill: C.red, color: C.white, fontSize: 10.5, bold: true, margin: 0 });
+    T(s, diff, { x: MX + lw - 1.3, y: ky + 0.44, w: 1.1, h: 0.5, fontSize: 15, bold: true, color: col, align: 'right', valign: 'middle' });
   });
-  // 왼쪽 아래: 선택 구간 전체 합산 오차율 w별 막대
-  const by = y + h + 0.3, lw = 6.6, bh = 6.82 - by;
-  RR(s, MX, by, lw, bh, C.light);
-  const cand = WS.candidates.filter((c) => c.scope === '전체' && isNum(c.wape)).sort((a, b) => a.w - b.w);
-  const mn = Math.min(...cand.map((c) => c.wape)), mxv = Math.max(...cand.map((c) => c.wape));
-  const best = cand.find((c) => c.wape === mn);
-  T(s, `참고: 모든 그룹에 같은 w를 쓸 때 (선택 구간 ${SEL})`, { x: MX + 0.25, y: by + 0.12, w: lw - 0.5, h: 0.32, fontSize: 13, bold: true, color: C.navy, valign: 'middle' });
-  T(s, `전체 합산 오차율 ${pct(mn)} ~ ${pct(mxv)} · 가장 낮은 w = ${wfmt(best.w)} · 막대는 최솟값 근처를 확대`, { x: MX + 0.25, y: by + 0.44, w: lw - 0.5, h: 0.28, fontSize: 10.5, color: C.gray, valign: 'middle' });
-  const bx = MX + 0.3, bwid = (lw - 0.6) / cand.length, base = by + bh - 0.4, lo = mn * 0.9, ph = bh - 1.45;
-  line(s, bx, base, lw - 0.6, 0, C.mute);
-  cand.forEach((c, i) => {
-    const hh = Math.max(0.04, ((c.wape - lo) / (mxv - lo)) * ph);
-    const isMin = c.wape === mn;
-    R(s, bx + i * bwid + bwid * 0.18, base - hh, bwid * 0.64, hh, isMin ? C.amber : C.mute);
-    T(s, pct(c.wape), { x: bx + i * bwid - 0.05, y: base - hh - 0.26, w: bwid + 0.1, h: 0.24, fontSize: 9.5, bold: isMin, color: isMin ? C.amber : C.slate, align: 'center', valign: 'bottom' });
-    T(s, wfmt(c.w), { x: bx + i * bwid, y: base + 0.04, w: bwid, h: 0.26, fontSize: 10.5, color: C.text, align: 'center', valign: 'middle' });
-  });
-  // 오른쪽 아래: 해석
-  const rx = MX + lw + 0.25, rw = W - MX - rx;
-  RR(s, rx, by, rw, bh, C.navy);
-  T(s, '해석', { x: rx + 0.25, y: by + 0.12, w: rw - 0.5, h: 0.36, fontSize: 14, bold: true, color: '8FC9C9', valign: 'middle' });
-  const full = { c: wsRow('전체구간', '전체', '현재', '가중평균'), n: wsRow('전체구간', '전체', '탐색', '가중평균') };
-  const notes = [
-    `선택에 쓰지 않은 ${HO.n}주로 확인한 개선입니다. 모든 그룹에 같은 w를 쓰면 w에 따른 차이가 작습니다(${pct(mn)}~${pct(mxv)}, 왼쪽).`,
-    coverDown
-      ? `결품 방어율은 ${pp(wsCur.cover, wsNew.cover)} 낮아졌습니다. 가중평균 수요 편향이 ${spct(wsCur.bias)} → ${spct(wsNew.bias)}로 ${wsNew.bias < wsCur.bias ? '과소' : '과대'} 쪽으로 움직였습니다 → 서비스 수준(Z) 조정 과제입니다.`
-      : `결품 방어율은 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}입니다.`,
-  ];
-  if (full.c && full.n && isNum(full.c.wape) && isNum(full.n.wape)) notes.push(`참고: 선택 구간을 포함한 ${VAL} 전체는 ${pct(full.c.wape)} → ${pct(full.n.wape)}`);
-  T(s, notes.map((t, i) => ({ text: t, options: { bullet: { indent: 12 }, breakLine: i < notes.length - 1, color: i === 2 ? C.sky : C.white, fontSize: i === 2 ? 10.5 : 12 } })),
-    { x: rx + 0.25, y: by + 0.55, w: rw - 0.45, h: bh - 0.65, valign: 'top', paraSpaceAfter: 6 });
-})();
-
-// ======================================================================= 11. 결과 2
-(function result2() {
-  const [t1, t2] = topContrib;
-  const s = slide({
-    title: t2 ? `개선은 ${ga(t1[0])} ${pct(t1[1].share, 0)} · ${ga(t2[0])} ${pct(t2[1].share, 0)}에 몰렸습니다` : `개선은 ${ga(t1[0])}에 몰렸습니다`,
-    sub: `그룹별 선택과 검증 구간 ${HOLD} 오차율 · 감소 몫 = 전체 오차 감소분 중 그 그룹의 몫`,
-    tagText: '결과', tagKind: 'dark',
-  });
-  const lw = 7.6, y = 1.72, rh = 0.42;
-  const rows = [['그룹', 'SKU', '현재 w', '선택 w', '방식', '검증 구간 오차율 (전→후)', '감소 몫']];
+  // 오른쪽: 그룹별 선택과 검증 구간 오차율, 감소 몫
+  const tx = MX + lw + 0.25, tw = W - MX - tx, rh = 0.4;
+  const rows = [['그룹', 'SKU', '현업 w', '선택 w', '방식', '검증 구간 오차율 (전→후)', '감소 몫']];
   const up = [], down = [];
   choicesSorted.forEach((c) => {
     const hc = wsRow('검증', c.group, '현재', '가중평균'), hn = wsRow('검증', c.group, '탐색', '가중평균');
@@ -1203,7 +1152,7 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
       cellOpt(wfmt(c.chosen), { bold: true, color: c.chosen !== c.current ? C.teal : C.text }),
       cellOpt(METHOD[c.method] || c.method, { color: c.method === '그룹최적' ? C.navy : C.gray }),
       cellOpt(hv ? `${pct(hc.wape)} → ${pct(hn.wape)}` : '–', { bold: true, color: col }),
-      cellOpt(isNum(sh) ? spct0(sh) : '–', { bold: isNum(sh) && sh >= 0.1, color: isNum(sh) && sh < 0 ? C.red : C.text })]);
+      cellOpt(isNum(sh) ? spct0(sh) : '–', { bold: isNum(sh) && sh >= 0.1, color: isNum(sh) && sh < 0 ? C.red : isNum(sh) && sh >= 0.1 ? C.teal : C.text })]);
     if (hv) {
       if (hn.wape < hc.wape) up.push(`${ga(c.group)} ${pct(hc.wape)}→${pct(hn.wape)}`);
       else if (hn.wape > hc.wape) down.push(`${ga(c.group)} 오차율 ${pct(hc.wape)}→${pct(hn.wape)}`);
@@ -1211,223 +1160,72 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     if (hc && hn && isNum(hc.cover) && isNum(hn.cover) && hn.cover < hc.cover) down.push(`${ga(c.group)} 방어율 ${pct(hc.cover)}→${pct(hn.cover)}`);
   });
   if (coverDown) down.unshift(`전체 방어율 ${pct(wsCur.cover)}→${pct(wsNew.cover)}`);
-  table(s, rows, { x: MX, y, w: lw, colW: [0.95, 0.6, 0.8, 0.8, 1.1, 2.4, 0.95], rowH: rh, fontSize: 11.5, headSize: 11, align: 'center' });
+  table(s, rows, { x: tx, y, w: tw, colW: [0.95, 0.6, 0.85, 0.85, 1.1, tw - 0.95 - 0.6 - 0.85 - 0.85 - 1.1 - 0.95, 0.95], rowH: rh, fontSize: 11.5, headSize: 11, align: 'center' });
   const tEnd = y + rh * rows.length;
-  T(s, `SKU = 선택 구간 채점 수 · 방식 '전체 합산' = SKU ${MINSKU}개 미만이라 전체를 합쳐 고른 w · 검증 구간 전체 ${NHOLD} SKU`,
-    { x: MX, y: tEnd + 0.06, w: lw, h: 0.3, fontSize: 10.5, color: C.gray, valign: 'middle' });
-  // 오른쪽: 감소 몫 가로 막대(표의 행과 높이를 맞춤)
-  const rx = MX + lw + 0.3, rw = W - MX - rx;
-  T(s, '오차 감소 몫', { x: rx, y, w: rw, h: rh, fontSize: 12, bold: true, color: C.navy, valign: 'middle' });
-  const shares = choicesSorted.map((c) => (contrib && contrib[c.group] ? contrib[c.group].share : null));
-  const negMax = Math.max(0, ...shares.filter(isNum).map((v) => -v)), posMax = Math.max(0, ...shares.filter(isNum));
-  const lab = 0.6, usable = rw - lab - 0.1;
-  const scale = usable / (negMax + posMax || 1);
-  const zx = rx + negMax * scale;
-  line(s, zx, y + rh, 0, rh * choicesSorted.length, C.mute, { width: 1 });
-  shares.forEach((v, i) => {
-    if (!isNum(v)) return;
-    const ry = y + rh * (i + 1) + 0.09, bhh = rh - 0.18;
-    const len = Math.max(0.03, Math.abs(v) * scale);
-    if (v >= 0) R(s, zx, ry, len, bhh, v >= 0.1 ? C.teal : '7FBFBF');
-    else R(s, zx - len, ry, len, bhh, C.red);
-    const tx = v >= 0 ? zx + len + 0.06 : zx + 0.06;
-    T(s, spct0(v), { x: tx, y: ry - 0.03, w: lab, h: bhh + 0.06, fontSize: 11, bold: v >= 0.1, color: v < 0 ? C.red : C.navy, valign: 'middle' });
-  });
-  // 아래: 좋아진 것 / 나빠진 것
+  T(s, `SKU = 선택 구간 채점 수 · '전체 합산' = SKU ${MINSKU}개 미만이라 전체를 합쳐 고른 w`,
+    { x: tx, y: tEnd + 0.04, w: tw, h: 0.26, fontSize: 10, color: C.gray, valign: 'middle' });
+  // 아래: 좋아진 것 / 나빠진 것(숨기지 않음)
   const pair = (arr) => arr.reduce((acc, t, i) => (i % 2 ? (acc[acc.length - 1] += ' · ' + t, acc) : (acc.push(t), acc)), []);
-  const by = tEnd + 0.5, bh = 6.85 - by, hw = (CW - 0.2) / 2;
+  const by = Math.max(tEnd + 0.42, y + 3 * kh + 2 * kg + 0.2), bh = 6.9 - by, hw = (CW - 0.2) / 2;
   RR(s, MX, by, hw, bh, C.tealL);
-  T(s, [{ text: '좋아진 것 (검증 구간 오차율)', options: { bold: true, color: C.teal, breakLine: true, fontSize: 12.5 } }, ...lines(pair(up).length ? pair(up) : ['없음'], { color: C.text })],
+  const gain = [];
+  if (topContribText) gain.push(`감소 몫: ${topContribText}에 몰림`);
+  gain.push(...pair(up));
+  T(s, [{ text: '좋아진 것 (검증 구간 오차율)', options: { bold: true, color: C.teal, breakLine: true, fontSize: 12.5 } }, ...lines(gain.length ? gain : ['없음'], { color: C.text })],
     { x: MX + 0.2, y: by + 0.1, w: hw - 0.4, h: bh - 0.2, fontSize: 11.5, valign: 'top', paraSpaceAfter: 3 });
   RR(s, MX + hw + 0.2, by, hw, bh, C.redL);
-  T(s, [{ text: '나빠진 것', options: { bold: true, color: C.red, breakLine: true, fontSize: 12.5 } }, ...lines(pair(down).length ? pair(down) : ['없음'], { color: C.text })],
+  const loss = pair(down);
+  if (coverDown && isNum(wsCur.bias) && isNum(wsNew.bias)) loss.push(`수요 편향 ${spct(wsCur.bias)} → ${spct(wsNew.bias)}(${wsNew.bias < wsCur.bias ? '과소' : '과대'} 쪽) → 서비스 수준(Z) 조정 과제`);
+  T(s, [{ text: '나빠진 것', options: { bold: true, color: C.red, breakLine: true, fontSize: 12.5 } }, ...lines(loss.length ? loss : ['없음'], { color: C.text })],
     { x: MX + hw + 0.4, y: by + 0.1, w: hw - 0.4, h: bh - 0.2, fontSize: 11.5, valign: 'top', paraSpaceAfter: 3 });
 })();
 
-// ======================================================================= 12. 사례
-(function example() {
-  const c = D.case, cc = D.counter_case;
-  const s = slide({
-    title: `사례: 품목 X의 안전재고일수 ${c.old_ss_days}일 → ${f1(c.s)}일`,
-    sub: `${ga(c.group)} · 재고등급 ${c.grade} · 리드타임 ${c.lt}일 · 그룹의 현재 w 기준(AI 탐색 w 아님) · 수량 없이 일수와 비율로`,
-    tagText: '사례', tagKind: 'light',
-  });
-  const lw = 6.0, y = 1.72;
-  // 왼쪽: 일수 비교
-  RR(s, MX, y, lw, 2.75, C.light);
-  T(s, '안전재고일수 비교', { x: MX + 0.25, y: y + 0.12, w: lw - 0.5, h: 0.34, fontSize: 14, bold: true, color: C.navy, valign: 'middle' });
-  const maxD = Math.max(c.old_ss_days, c.s);
-  const barX = MX + 1.55, barW = lw - 1.55 - 1.35;
-  [['기존 고정', c.old_ss_days, `${c.old_ss_days}일`, C.mute, C.slate], ['산식', c.s, `${f1(c.s)}일`, C.teal, C.teal]].forEach(([l, v, t, col, tc], i) => {
-    const ry = y + 0.65 + i * 0.85;
-    T(s, l, { x: MX + 0.25, y: ry, w: 1.25, h: 0.6, fontSize: 13, bold: true, color: tc, valign: 'middle' });
-    R(s, barX, ry + 0.12, Math.max(0.05, (v / maxD) * barW), 0.36, col);
-    T(s, t, { x: barX + Math.max(0.05, (v / maxD) * barW) + 0.1, y: ry, w: 1.3, h: 0.6, fontSize: 24, bold: true, color: tc, valign: 'middle' });
-  });
-  T(s, `리드타임을 더한 적정 재고일수: ${c.old_days}일 → ${f1(c.u)}일`, { x: MX + 0.25, y: y + 2.3, w: lw - 0.5, h: 0.32, fontSize: 11.5, color: C.slate, valign: 'middle' });
-  // 왼쪽 아래: 이 품목에 적용한 식
-  const fy = y + 2.9, fh = 1.3;
-  RR(s, MX, fy, lw, fh, C.white, { line: { color: C.line, width: 1 } });
-  T(s, '이 품목에 적용한 식', { x: MX + 0.25, y: fy + 0.1, w: lw - 0.5, h: 0.32, fontSize: 12.5, bold: true, color: C.teal, valign: 'middle' });
-  T(s, lines([
-    `가중평균 수요 = ${wfmt(c.wh)}·실적 + ${wfmt(c.wf)}·예측  (그룹의 현재 w)`,
-    `안전재고 = Z(등급 ${c.grade})·σ·√${c.lt}  → 일평균 수요로 나눠 ${f1(c.s)}일`,
-  ]), { x: MX + 0.25, y: fy + 0.46, w: lw - 0.5, h: 0.78, fontSize: 12, color: C.navy, bold: true, paraSpaceAfter: 4 });
-  // 오른쪽: 사후 검증
-  const rx = MX + lw + 0.3, rw = W - MX - rx, vh = fy + fh - y;
-  RR(s, rx, y, rw, vh, C.white, { line: { color: C.line, width: 1 } });
-  T(s, `사후 검증 · ${VAL}(${VS.n}주) 실제 출고`, { x: rx + 0.25, y: y + 0.12, w: rw - 0.5, h: 0.34, fontSize: 14, bold: true, color: C.navy, valign: 'middle' });
-  const ok = (v) => (v === '방어' ? C.teal : C.red);
-  const fdiff = c.g / c.actual_week - 1;
-  const vr = [
-    ['리드타임 수요 방어', [[`산식 ${cov(c.new_cover)}`, ok(c.new_cover)], ['  ·  ', C.gray], [`기존 ${cov(c.old_cover)}`, ok(c.old_cover)]]],
-    ['실제 기준 재고일수', [[`산식 ${f1(c.new_actual_days)}일`, C.teal], ['  ·  ', C.gray], [`기존 ${f1(c.old_actual_days)}일`, C.slate]]],
-    ['목표재고 비율 (산식 ÷ 기존)', [[pct(c.new_target / c.old_target, 0), C.teal]]],
-    ['실제 대비 가중평균 수요 차이', [[`${fdiff >= 0 ? '+' : '−'}${pct(Math.abs(fdiff), 0)}`, C.amber, true], [fdiff >= 0 ? '(가중평균 수요가 실제보다 높음)' : '(가중평균 수요가 실제보다 낮음)', C.gray]]],
-  ];
-  const step = 0.72;
-  vr.forEach(([a, parts], i) => {
-    const ry = y + 0.6 + i * step;
-    if (i) line(s, rx + 0.25, ry - 0.04, rw - 0.5, 0, C.line);
-    T(s, a, { x: rx + 0.25, y: ry, w: 2.5, h: step - 0.08, fontSize: 12, color: C.slate, valign: 'middle' });
-    T(s, parts.map(([t, col, br]) => ({ text: t, options: { color: col, bold: col !== C.gray, fontSize: col === C.gray ? 10.5 : 15, breakLine: !!br } })),
-      { x: rx + 2.7, y: ry, w: rw - 2.95, h: step - 0.08, align: 'right', valign: 'middle' });
-  });
-  T(s, `선정 규칙: ${c.rule} (산식에 유리한 사례)`, { x: rx + 0.25, y: y + vh - 0.62, w: rw - 0.5, h: 0.52, fontSize: 10, color: C.gray, valign: 'bottom' });
-  // 아래: 요약과 반대 사례
-  const both = c.new_cover === '방어' && c.old_cover === '방어';
-  const msg = both
-    ? `두 기준 모두 리드타임 수요를 덮었고, 산식 목표재고는 기존의 ${pct(c.new_target / c.old_target, 0)}였습니다. 단, 가중평균 수요는 실제보다 ${pct(Math.abs(fdiff), 0)} ${fdiff >= 0 ? '높았' : '낮았'}습니다.`
-    : `방어 결과: 산식 ${cov(c.new_cover)}, 기존 ${cov(c.old_cover)} · 산식 목표재고는 기존의 ${pct(c.new_target / c.old_target, 0)}입니다.`;
-  box(s, msg, MX, 6.03, CW, 0.42, { fill: C.navy, color: C.white, fontSize: 12, bold: true, align: 'left', margin: 10, round: 0.06 });
-  const ccBoth = cc.new_cover === '결품' && cc.old_cover === '결품';
-  box(s, [
-    { text: '반대 사례  ', options: { bold: true, color: C.white } },
-    { text: `${ga(cc.group)}의 한 품목은 ${cc.old_ss_days}일 → ${f1(cc.s)}일이었고, 실제 출고가 가중평균 수요의 ${(cc.actual_week / cc.g).toFixed(1)}배여서 ${ccBoth ? '두 기준 모두' : '산식은'} 방어에 실패했습니다.`, options: { color: C.white } },
-  ], MX, 6.52, CW, 0.42, { fill: C.red, fontSize: 12, align: 'left', margin: 10, round: 0.06 });
-})();
-
-// ======================================================================= 13. 해석과 한계
+// ======================================================================= 14. 해석과 한계
 (function limits() {
+  const W0 = M['가중평균'], OLDM = M['기존수기'];
+  const wBest = BYWAPE[0] === '가중평균';
   const s = slide({
-    title: `검증 오차는 줄었지만, 선택 ${SS_.n}주·유의성 검정 없음의 한계가 있습니다`,
-    sub: '개선 주장은 채점에 쓰지 않은 구간의 수치로만 하고, 나빠진 지표도 함께 적었습니다',
-    tagText: '해석', tagKind: 'light',
+    title: '품목별 값과 오차율 개선은 확인했지만, 유의성 검정은 아직 없습니다',
+    sub: '주장은 범위(기간·SKU)를 밝힌 수치로만 하고, 나빠진 지표도 함께 적었습니다',
+    tagText: '해석과 한계', tagKind: 'light',
   });
-  const lw = 5.3, y = 1.72, h = 5.05;
+  const lw = 5.5, y = 1.62, h = 5.2;
   RR(s, MX, y, lw, h, C.navy);
-  T(s, '말할 수 있는 것', { x: MX + 0.3, y: y + 0.14, w: lw - 0.6, h: 0.4, fontSize: 16, bold: true, color: C.white, valign: 'middle' });
+  T(s, '말할 수 있는 것', { x: MX + 0.3, y: y + 0.12, w: lw - 0.6, h: 0.4, fontSize: 16, bold: true, color: C.white, valign: 'middle' });
+  const OLD = SB['기존수기'], WB = SB['가중평균'];
   const can = [
-    [`검증 오차율 개선`, `선택에 안 쓴 ${HOLD}: ${pct(wsCur.wape)} → ${pct(wsNew.wape)} (${NHOLD} SKU)`],
-    ['고정값보다 짧고 품목마다 다른 일수', `중앙값 ${f1(SS.old_median)} → ${f1(SS.new_median)}일 · ${SS.shorter}/${SS.n} SKU가 짧아짐`],
+    ['품목별 일별 안전재고 자동 산출', `현업 수기 ${OLD.distinct}종 → 가중평균 기준 ${WB.distinct}개 값 · 중앙값 ${f1(OLD.median)} → ${f1(WB.median)}일 (${SB.n} SKU)`],
+    [wBest ? '세 기준 중 가중평균 기준 오차율 최저' : `세 기준 중 ${BLABEL[BYWAPE[0]]} 오차율 최저`,
+      `${VAL} 공통 ${W0.n_demand} SKU: ${BYWAPE.map((b) => `${BSHORT[b]} ${pct(M[b].wape)}`).join(' · ')}`],
+    ['AI 보정으로 검증 오차 감소', `현업 w → 보정 w, 선택에 안 쓴 ${HOLD}: ${pct(wsCur.wape)} → ${pct(wsNew.wape)} (${NHOLD} SKU)`],
     ['등급 규칙 일치', `규칙 기반 재고등급이 기존 등급 ${D.grades.match}/${D.grades.total}과 같음`],
   ];
-  const ih = 1.45;
+  const ih = (h - 0.7) / can.length;
   can.forEach(([a, b], i) => {
-    const iy = y + 0.75 + i * ih;
-    num(s, i + 1, MX + 0.3, iy + 0.05, 0.46, C.teal, C.white, 14);
-    T(s, a, { x: MX + 0.95, y: iy, w: lw - 1.2, h: 0.5, fontSize: 14.5, bold: true, color: C.white, valign: 'middle' });
-    T(s, b, { x: MX + 0.95, y: iy + 0.52, w: lw - 1.2, h: 0.8, fontSize: 12, color: 'D5DEE7' });
+    const iy = y + 0.66 + i * ih;
+    num(s, i + 1, MX + 0.3, iy + 0.04, 0.42, i === can.length - 1 ? C.slate : C.teal, C.white, 13);
+    T(s, a, { x: MX + 0.9, y: iy, w: lw - 1.1, h: 0.46, fontSize: 14, bold: true, color: C.white, valign: 'middle' });
+    T(s, b, { x: MX + 0.9, y: iy + 0.48, w: lw - 1.1, h: ih - 0.56, fontSize: 11.5, color: 'D5DEE7' });
   });
   const rx = MX + lw + 0.3, rw = W - MX - rx;
   T(s, '아직 말할 수 없는 것 (한계)', { x: rx, y, w: rw, h: 0.4, fontSize: 16, bold: true, color: C.amber, valign: 'middle' });
+  const lowCover = BASIS3.filter((b) => b !== '가중평균' && isNum(M[b].cover) && M[b].cover > W0.cover);
+  const higherOld = isNum(OLDM.cover) && OLDM.cover > W0.cover;
   const lim = [
-    ['db', '테스트 데이터셋 결과', '비식별 처리한 테스트 데이터셋에서 얻은 결과입니다. 다른 데이터에서도 같다고 보장하지 않습니다.'],
+    ['chart', '같은 기간 채점 · 유의성 검정 없음', `세 기준은 같은 ${VAL}에서 채점했고, AI 보정은 검증 ${NHOLD} SKU(그룹 ${minGroupN}~${maxGroupN}개)입니다. 차이가 우연인지 검정하지 않았습니다.`],
+    ['target', '결품 방어는 대리 지표', `실제 결품 기록이 아닙니다. 가중평균 기준 방어율 ${pct(W0.cover)}${higherOld || lowCover.length ? `는 ${[...(higherOld ? ['기존 수기'] : []), ...lowCover.map((b) => BLABEL[b])].join('·')}보다 낮고` : ''}, AI 보정 후 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}입니다.`],
+    ['db', '테스트 데이터셋 결과', '비식별 처리한 테스트 데이터셋의 결과입니다. 다른 데이터에서도 같다고 보장하지 않습니다.'],
     ['calendar', `선택 구간 ${SS_.n}주`, `W${SS_.b}에 다시 고르는 상황을 흉내 낸 것이라 실제 운영보다 낙관적일 수 있습니다.`],
-    ['chart', '유의성 검정 없음', `검증 ${NHOLD} SKU, 그룹은 ${minGroupN}~${maxGroupN}개. 차이가 우연인지 검정하지 않았습니다.`],
-    ['target', '결품 방어는 대리 지표', lines(['목표재고가 실제 리드타임 수요를 덮었는지만 봅니다(실제 결품 기록 아님).', `방어율 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}`])],
     ['doc', '예측 스냅샷 1개', '한 시점의 예측만 썼습니다. 주마다 쌓아 같은 비교를 반복해야 합니다.'],
   ];
   const step = (h - 0.5) / lim.length;
   lim.forEach(([ic, a, b], i) => {
     const ly = y + 0.5 + i * step;
     RR(s, rx, ly, rw, step - 0.08, C.amberL);
-    icon(s, ic, rx + 0.16, ly + (step - 0.08 - 0.55) / 2, 0.55, C.amber);
-    T(s, a, { x: rx + 0.85, y: ly, w: 2.05, h: step - 0.08, fontSize: 12.5, bold: true, color: C.navy, valign: 'middle' });
-    T(s, b, { x: rx + 2.95, y: ly, w: rw - 3.1, h: step - 0.08, fontSize: 11.5, color: C.text, valign: 'middle' });
+    icon(s, ic, rx + 0.14, ly + (step - 0.08 - 0.5) / 2, 0.5, C.amber);
+    T(s, a, { x: rx + 0.75, y: ly, w: 1.85, h: step - 0.08, fontSize: 12, bold: true, color: C.navy, valign: 'middle' });
+    T(s, b, { x: rx + 2.7, y: ly, w: rw - 2.85, h: step - 0.08, fontSize: 11, color: C.text, valign: 'middle' });
   });
-})();
-
-// ======================================================================= 14. 향후 과제와 MLOps
-(function roadmap() {
-  const s = slide({
-    title: 'MLOps 로드맵: 지금은 Level 0에서 1로 넘어가는 단계입니다',
-    sub: 'Google MLOps 성숙도 기준으로 본 이 프로젝트의 위치와, 목표로 하는 모니터링 화면 구상',
-    tagText: 'MLOps 로드맵', tagKind: 'amber',
-  });
-  // 왼쪽: 성숙도 Level 0/1/2
-  const lw = 5.75, y0 = 1.62, ch = 1.48, cg = 0.1;
-  const levels = [
-    ['Level 0', '수동 실험', '스크립트로 실험·학습, 사람이 결과를 확인하고 반영', '달성', C.teal,
-      'AutoML 탐색·시계열 검증을 스크립트로 실행하고 사람이 확인'],
-    ['Level 1', '파이프라인 자동화·지속 학습', '파이프라인 자동 실행, 새 데이터로 재학습, 데이터·성능 검증', '진행 중', C.amber,
-      `구현: 파이프라인 · 자동 테스트 ${int(TESTS)}개 · 버전 관리 · 다음: 주간 재탐색 · 모니터링`],
-    ['Level 2', 'CI/CD 자동화', '파이프라인 자체를 CI/CD로 시험·배포, 자동 배포와 되돌리기', '계획', C.mute,
-      '승인 후 자동 배포, 경보가 뜨면 재학습을 자동으로 시작'],
-  ];
-  levels.forEach(([a, b, core, st, col, mine], i) => {
-    const y = y0 + i * (ch + cg), now = st === '진행 중';
-    RR(s, MX, y, lw, ch, now ? C.amberL : C.light, now ? { line: { color: C.amber, width: 2.25 } } : {});
-    box(s, a, MX + 0.18, y + 0.15, 0.95, 0.32, { round: 0.16, fill: i === 2 ? C.slate : C.navy, color: C.white, bold: true, fontSize: 11.5, margin: 0 });
-    T(s, b, { x: MX + 1.25, y: y + 0.12, w: lw - 2.6, h: 0.38, fontSize: 14, bold: true, color: C.navy, valign: 'middle' });
-    box(s, now ? '진행 중 · 현재' : st, MX + lw - 1.38, y + 0.15, 1.2, 0.32, { round: 0.16, fill: col, color: C.white, bold: true, fontSize: 11, margin: 0 });
-    T(s, [{ text: '핵심  ', options: { bold: true, color: C.slate } }, { text: core, options: { color: C.text } }],
-      { x: MX + 0.2, y: y + 0.55, w: lw - 0.4, h: 0.4, fontSize: 10.5, valign: 'middle' });
-    T(s, [{ text: '이 프로젝트  ', options: { bold: true, color: C.teal } }, { text: mine, options: { color: C.navy } }],
-      { x: MX + 0.2, y: y + 0.95, w: lw - 0.4, h: 0.46, fontSize: 10.5, valign: 'middle' });
-  });
-  // 오른쪽: 목표 대시보드 목업(도형). 숫자는 data.json 값을 예시로 쓴다
-  const wx = MX + lw + 0.3, ww = W - MX - wx;
-  box(s, '목표 화면(구상) · 예시 값', wx, y0, ww, 0.46, { fill: C.amber, color: C.white, bold: true, fontSize: 16, round: 0.06 });
-  const wy = y0 + 0.56, wh = y0 + 3 * ch + 2 * cg - wy;
-  RR(s, wx, wy, ww, wh, C.white, { line: { color: C.mute, width: 1.25 } });
-  R(s, wx + 0.02, wy + 0.02, ww - 0.04, 0.32, 'E6EBF0');
-  [C.red, C.amber, C.teal].forEach((col, i) => s.addShape(pres.shapes.OVAL, { x: wx + 0.14 + i * 0.2, y: wy + 0.1, w: 0.13, h: 0.13, fill: { color: col }, line: { color: col, width: 0 } }));
-  T(s, '주간 가중치 점검 화면 (구상)', { x: wx + 0.85, y: wy + 0.02, w: ww - 1.0, h: 0.32, fontSize: 10.5, bold: true, color: C.slate, valign: 'middle' });
-  // 주간 검증 오차율 막대: 탐색 전·후 값(예시) + 앞으로 쌓일 주(빈 막대)
-  const cx = wx + 0.15, cwid = 3.25, cy = wy + 0.45, chh = 2.55;
-  T(s, '주간 검증 오차율', { x: cx, y: cy, w: cwid, h: 0.28, fontSize: 11, bold: true, color: C.navy, valign: 'middle' });
-  const vmax = wsCur.wape * 1.3, base = cy + chh - 0.3, top = cy + 0.55, ph = base - top;
-  const bars5 = [['탐색 전', wsCur.wape, C.mute], ['탐색 후', wsNew.wape, C.teal], ['다음 주', null], ['+2주', null], ['+3주', null]];
-  const slot = cwid / bars5.length, bwid = slot * 0.56;
-  line(s, cx, base, cwid, 0, C.mute);
-  bars5.forEach(([l, v, col], i) => {
-    const bx = cx + i * slot + (slot - bwid) / 2;
-    if (isNum(v)) {
-      const hh = (v / vmax) * ph;
-      R(s, bx, base - hh, bwid, hh, col);
-      T(s, pct(v), { x: cx + i * slot - 0.05, y: base - hh - 0.24, w: slot + 0.1, h: 0.22, fontSize: 9.5, bold: true, color: i === 1 ? C.teal : C.slate, align: 'center', valign: 'bottom' });
-    } else {
-      box(s, '', bx, base - ph * 0.5, bwid, ph * 0.5, { fill: C.white, dash: true, lineColor: C.line });
-    }
-    T(s, l, { x: cx + i * slot - 0.05, y: base + 0.03, w: slot + 0.1, h: 0.24, fontSize: 9.5, color: C.text, align: 'center', valign: 'middle' });
-  });
-  const ty = base - (wsCur.wape / vmax) * ph;
-  line(s, cx, ty, cwid, 0, C.red, { width: 1, dashType: 'dash' });
-  T(s, '경보 기준(예: 탐색 전 수준)', { x: cx + cwid - 2.0, y: ty - 0.24, w: 2.0, h: 0.22, fontSize: 9, color: C.red, align: 'right', valign: 'middle' });
-  // 그룹별 가중치 변경 표(예시: 이번 탐색 결과)
-  const tx = cx + cwid + 0.2, tw = wx + ww - 0.15 - tx;
-  T(s, '그룹별 가중치 변경', { x: tx, y: cy, w: tw, h: 0.28, fontSize: 11, bold: true, color: C.navy, valign: 'middle' });
-  const rows = [['그룹', '현재 w', '선택 w']];
-  choicesSorted.forEach((c) => rows.push([ga(c.group), wfmt(c.current), cellOpt(wfmt(c.chosen), { bold: true, color: c.chosen !== c.current ? C.teal : C.text })]));
-  table(s, rows, { x: tx, y: cy + 0.32, w: tw, colW: [tw - 1.3, 0.65, 0.65], rowH: 0.27, fontSize: 9.5, headSize: 9.5, align: 'center', margin: [0.02, 0.04, 0.02, 0.04] });
-  // 경보 예시 두 개
-  const worse = choicesSorted.map((c) => ({ c, a: wsRow('검증', c.group, '현재', '가중평균'), z: wsRow('검증', c.group, '탐색', '가중평균') }))
-    .filter((r) => r.a && r.z && isNum(r.a.wape) && isNum(r.z.wape) && r.z.wape > r.a.wape)
-    .sort((p, q) => (q.z.wape - q.a.wape) - (p.z.wape - p.a.wape))[0];
-  const alerts = [];
-  if (coverDown) alerts.push(`결품 방어율 ${pct(wsCur.cover)} → ${pct(wsNew.cover)} 하락 · 서비스 수준 검토`);
-  if (worse) alerts.push(`${ga(worse.c.group)} 오차율 ${pct(worse.a.wape)} → ${pct(worse.z.wape)} 상승 · 승인 전 확인`);
-  const ay0 = wy + wh - 0.12 - alerts.length * 0.42;
-  alerts.forEach((t, i) => {
-    box(s, [{ text: '경보  ', options: { bold: true, color: C.red } }, { text: t, options: { color: C.text } }],
-      wx + 0.15, ay0 + i * 0.42, ww - 0.3, 0.36, { fill: C.redL, lineColor: 'E8B4AD', fontSize: 10.5, align: 'left', margin: 6, round: 0.05 });
-  });
-  // 아래: 남은 과제 한 줄
-  box(s, [
-    { text: '다음 과제  ', options: { bold: true, color: '8FC9C9' } },
-    { text: '서비스 수준(Z)도 같은 탐색·시계열 검증으로 조정 · 주간 재탐색으로 유의성 판단 · 실운영 데이터 적용', options: { color: C.white } },
-  ], MX, 6.4, CW, 0.5, { fill: C.navy, fontSize: 12, bold: true, align: 'left', margin: 12, round: 0.06 });
 })();
 
 // ======================================================================= 15. 정리
@@ -1436,12 +1234,18 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   const s = pres.addSlide();
   s.background = { color: C.navy };
   T(s, '정리', { x: 0.9, y: 0.45, w: 8, h: 0.7, fontSize: 32, bold: true, color: C.white, valign: 'middle' });
-  T(s, '무엇이 문제였고, 어떻게 풀었고, 무엇을 얻었는가', { x: 0.9, y: 1.12, w: 9.5, h: 0.38, fontSize: 14, color: C.sky, valign: 'middle' });
+  T(s, '목표 · 세 기준 비교 · AI 보정', { x: 0.9, y: 1.12, w: 9.5, h: 0.38, fontSize: 14, color: C.sky, valign: 'middle' });
   tag(s, '정리', 'outline');
+  const OLD = SB['기존수기'], WB = SB['가중평균'], W0 = M['가중평균'];
+  const best = BYWAPE[0];
+  const coverLow = isNum(M['기존수기'].cover) && M['기존수기'].cover > W0.cover;
   const items = [
-    ['무엇이 문제였나', `안전재고일수가 고정값(${oldLevels.join('·')}일)이었고, 실적과 예측을 섞는 가중치에 근거가 없었습니다.`],
-    ['어떻게 풀었나', `AutoML(그리드 탐색 + 시계열 분할 검증)으로 가중치 ${man(SPACE)} 조합을 ${CANDS.length * NG}번 계산으로 탐색하고 과적합 방지 규칙(작은 그룹 합산)을 적용해 고른 뒤, 고를 때 쓰지 않은 ${HOLD}로 검증했습니다.`],
-    ['무엇을 얻었나', `검증 구간 오차율 ${pct(wsCur.wape)} → ${pct(wsNew.wape)}(${pp(wsCur.wape, wsNew.wape)} 개선), 안전재고일수 중앙값 ${f1(SS.old_median)} → ${f1(SS.new_median)}일. 결품 방어율 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}는 서비스 수준 조정 과제로 남았습니다.`],
+    [`목표: 현업 수기 ${OLD.distinct}종 → 품목별 자동 산출`,
+      `현업이 품목마다 계산할 수 없어 ${oldLevels.join('·')}일에 몰려 있던 일별 안전재고를, 같은 공식으로 품목마다 산출했습니다(가중평균 기준 ${WB.distinct}개 값, 중앙값 ${f1(OLD.median)} → ${f1(WB.median)}일).`],
+    [best === '가중평균' ? '세 기준 비교: 가중평균 기준 오차율 최저' : `세 기준 비교: ${BLABEL[best]} 오차율 최저`,
+      `${VAL} 공통 ${W0.n_demand} SKU 실제 출고 오차율 ${BYWAPE.map((b) => `${BSHORT[b]} ${pct(M[b].wape)}`).join(' · ')}.${coverLow ? ` 가중평균 기준의 결품 방어율 ${pct(W0.cover)}는 기존 수기 ${pct(M['기존수기'].cover)}보다 낮아 과제로 남았습니다.` : ''}`],
+    ['AI 보정: 현업 w에서 출발해 데이터로 보정',
+      `그리드 탐색(${man(SPACE)} 조합을 ${CANDS.length * NG}번 계산)과 시계열 분할 검증으로 고른 w가 검증 구간 ${HOLD}에서 ${pct(wsCur.wape)} → ${pct(wsNew.wape)}(${pp(wsCur.wape, wsNew.wape)} 개선).${coverDown ? ` 방어율 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}는 함께 볼 과제입니다.` : ''}`],
   ];
   items.forEach(([a, b], i) => {
     const y = 1.75 + i * 1.3;
@@ -1449,10 +1253,9 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     T(s, a, { x: 1.8, y, w: 10.6, h: 0.4, fontSize: 16, bold: true, color: C.sky, valign: 'middle' });
     T(s, b, { x: 1.8, y: y + 0.42, w: 10.8, h: 0.8, fontSize: 14, color: C.white, valign: 'top' });
   });
-  // 3번 항목에 이어 MLOps 다음 단계 한 줄(사용자 지시)
   box(s, [
-    { text: 'MLOps 다음 단계  ', options: { bold: true, color: C.white } },
-    { text: '지금은 Level 0→1 진입 · 다음은 주간 재학습·성능 모니터링을 자동화하고 승인 후 배포(Level 1 완성)', options: { color: C.white } },
+    { text: '다음 과제  ', options: { bold: true, color: C.white } },
+    { text: '서비스 수준(Z)도 같은 탐색·시계열 검증으로 조정 · 주간 재탐색과 성능 모니터링 · 승인 후 운영 적용', options: { color: C.white } },
   ], 1.8, 1.75 + 2 * 1.3 + 1.25, 10.8, 0.5, { fill: C.teal, fontSize: 13, align: 'left', margin: 10, round: 0.06 });
   T(s, '감사합니다 · 질의응답', { x: 0.9, y: 6.3, w: 8, h: 0.5, fontSize: 18, bold: true, color: C.sky, valign: 'middle' });
   footer(s, true);
