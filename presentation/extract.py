@@ -149,6 +149,17 @@ def days_distribution(calc: list[dict]) -> dict:
     }
 
 
+def basis_spread(values: list[float], old: list[float]) -> dict:
+    """한 기준의 안전재고일수 분포 요약. shorter는 같은 위치의 기존 값보다 짧은 SKU 수."""
+    q = statistics.quantiles(values, n=10, method='inclusive')
+    return {
+        'median': statistics.median(values), 'min': min(values), 'max': max(values),
+        'p10': q[0], 'p90': q[8],
+        'distinct': len({round(v, 1) for v in values}),
+        'shorter': sum(v < o for v, o in zip(values, old)),
+    }
+
+
 def safety_distribution(calc: list[dict]) -> dict:
     """기존 안전재고일수(MP 일별 안전재고)와 산식 안전재고일수 분포.
 
@@ -160,7 +171,16 @@ def safety_distribution(calc: list[dict]) -> dict:
     new = [r['가중평균_안전재고일수'] for r in both]
     all_new = [r['가중평균_안전재고일수'] for r in calc if r['가중평균_안전재고일수'] is not None]
     old_all = [r['기존안전재고일수'] for r in calc if r['기존안전재고일수'] is not None]
+    # 네 기준이 모두 있는 SKU로 기준끼리 비교한다
+    cols = {'기존수기': '기존안전재고일수', '가중평균': '가중평균_안전재고일수',
+            '실적기준': '실적기준_안전재고일수', 'FCST기준': 'FCST기준_안전재고일수'}
+    four = [r for r in calc if all(r[c] is not None for c in cols.values())]
+    base_old = [r[cols['기존수기']] for r in four]
+    bases = {'n': len(four)}
+    for name, col in cols.items():
+        bases[name] = basis_spread([r[col] for r in four], base_old)
     return {
+        'bases': bases,
         'n': len(both), 'labels': bin_labels(SS_BINS), 'old': bins(old, SS_BINS), 'new': bins(new, SS_BINS),
         'old_median': statistics.median(old), 'new_median': statistics.median(new),
         'new_min': min(new), 'new_max': max(new), 'shorter': sum(n < o for o, n in zip(old, new)),
@@ -192,7 +212,7 @@ def counter_case(calc: list[dict], val: dict[str, dict]) -> dict:
 
 def case_dict(r: dict, v: dict, rule: str) -> dict:
     """사례 장에 쓰는 값(산출결과 한 행 + 검증_SKU 한 행)."""
-    return {
+    out = {
         'rule': rule,
         'sku': r['SKU'], 'group': r['품목그룹'], 'name': r['품목명'], 'grade': r['재고등급'],
         'wh': r['실적가중치'], 'wf': r['FCST가중치'], 'lt': r['리드타임(일)'], 'onhand': r['현재고'],
@@ -207,6 +227,12 @@ def case_dict(r: dict, v: dict, rule: str) -> dict:
         'old_actual_days': v['기존수기_실제기준재고일수'], 'new_actual_days': v['가중평균_실제기준재고일수'],
         'error': v['가중평균_수요오차'],
     }
+    for p, b in (('act', '실적기준'), ('fc', 'FCST기준')):
+        out[f'{p}_s'] = r[f'{b}_안전재고일수']
+        out[f'{p}_u'] = r[f'{b}_적정재고일수']
+        out[f'{p}_cover'] = v[f'{b}_LT수요방어']
+        out[f'{p}_actual_days'] = v[f'{b}_실제기준재고일수']
+    return out
 
 
 def validation_counts(val: list[dict], calc: list[dict]) -> dict:
