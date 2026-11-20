@@ -133,3 +133,17 @@ powershell -File presentation/render.ps1
 - 결과: `out/발표_적정재고일수.pptx`(장별 그림은 `out/render/slide-NN.png`)
 - 발표 흐름: AI 가중치 탐색(후보 전체 채점·시계열 검증·과적합 방지)을 중심으로, 사후 검증 결과와 한계(개선이 몰린 그룹, 결품 방어율 하락, 입력 일부 역산)를 함께 싣는다.
 - `presentation/data.json`은 업무 수치라 저장소에서 제외한다(`extract.py`가 다시 만든다).
+
+### 공개본(외부 배포용)
+
+대학원생 등 외부 배포용 비식별 15장이다. MLOps·AutoML 중심이며, 현업 보고용 사내본(`build.js`, 36장)은 그대로 둔다.
+
+```
+node presentation/build_public.js     # presentation 폴더에서는 npm run build:public
+uv run python presentation/leak_check.py out/발표_적정재고일수_공개본.pptx
+powershell -ExecutionPolicy Bypass -File presentation/render.ps1 -Pptx out/발표_적정재고일수_공개본.pptx -OutDir out/render_public
+```
+
+- 비식별 규칙: 품목그룹은 그룹 A~G(가중평균 채점 SKU 수 내림차순)로 치환한다.
+- SKU·제품명·절대 수량·사내 시스템명·실제 날짜는 쓰지 않고 비율·일수·SKU 수·주차만 쓴다. 산식은 일반식 두 개만 싣는다.
+- 데이터는 '테스트 데이터셋(비식별 처리)'로 표기한다. `leak_check.py`가 금지어와 장 수(15장)를 검사하며, 통과해야 배포한다.
