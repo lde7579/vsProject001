@@ -6,8 +6,10 @@ from safety_stock.purchase_master.model import PurchaseMasterRow, normalize_grad
 
 # 백분위 경계: 이 값 이상이면 A, 두 번째 값 이상이면 B, 그 외 C
 GRADE_CUTS = (0.75, 0.26)
+# 배점은 dongs_reference/safety-stock-formulas.md 1-(4) 기준이다.
+# 'quality'는 입력 엑셀의 '품질이슈' 열이고, 기준 문서의 '품절이력'과 같은 항목이다.
 SCORES = {'price': {'A': 5, 'B': 3, 'C': 1}, 'turnover': {'A': 10, 'B': 5, 'C': 1},
-          'lt': {'A': 5, 'B': 3, 'C': 1}, 'quality': {'A': 5, 'B': 3, 'C': 0}}
+          'lt': {'A': 5, 'B': 3, 'C': 1}, 'quality': {'A': 5, 'B': 3, 'C': 1}}
 
 
 def percentrank_inc(values: list[float], x: float) -> float:
@@ -63,7 +65,7 @@ def compute_grades(rows: list[PurchaseMasterRow]) -> dict[str, GradeResult]:
     for r in rows:
         lt, q = normalize_grade(r.lt_grade), normalize_grade(r.quality_grade)
         reasons = [msg for ok, msg in ((r.price is not None, '구매단가없음'), (lt, '리드타임등급없음'),
-                                        (q, '품질등급없음')) if not ok]
+                                        (q, '품절이력등급없음')) if not ok]
         price_rank = percentrank_inc(prices, r.price) if r.price is not None else None
         price_grade = grade_from_rank(price_rank) if price_rank is not None else None
         t = turns[r.sku]

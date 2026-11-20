@@ -37,14 +37,14 @@ def test_compute_grades_scores_and_zero_turnover():
     assert list(g) == ['A', 'B', 'C']
     assert (g['C'].turnover, g['C'].turnover_grade) == (None, 'C')
     assert g['A'].scores == (5, 10, 5, 5) and g['A'].total == 25 and g['A'].grade == 'A'
-    assert g['B'].scores == (3, 1, 3, 0) and g['B'].total == 7   # 회전율 배열은 A,B 두 개 → B 0.0 → C
+    assert g['B'].scores == (3, 1, 3, 1) and g['B'].total == 8   # 품절이력 C = 1점 · 회전율 배열은 A,B 두 개 → B 0.0 → C
     assert g['C'].grade == 'C'
 
 
 def test_ungradable_row_has_memo_and_is_excluded():
     rows = [_row('A', price=None, lt='A', q='X'), _row('B', price=1, lt='A', q='A'), _row('C', price=2, lt='B', q='B')]
     g = compute_grades(rows)
-    assert g['A'].grade is None and g['A'].memo == '등급산출불가(구매단가없음, 품질등급없음)'
+    assert g['A'].grade is None and g['A'].memo == '등급산출불가(구매단가없음, 품절이력등급없음)'
     assert g['A'].scores is None and g['A'].total is None and g['A'].price_rank is None
     assert g['B'].price_rank == 0.0 and g['C'].price_rank == 1.0    # A는 단가 배열에서 빠짐
 

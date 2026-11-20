@@ -606,8 +606,8 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   RR(s, MX, gy, CW, gh, C.white, { line: { color: C.line, width: 1 } });
   icon(s, 'table', MX + 0.3, gy + 0.3, 0.7, C.navy);
   T(s, '재고등급(A·B·C)별 서비스 수준 Z 적용', { x: MX + 1.2, y: gy + 0.22, w: 6.4, h: 0.42, fontSize: 16, bold: true, color: C.navy, valign: 'middle' });
-  T(s, `규칙 기반 등급이 기존 등급 ${G.match}/${G.total} 일치`, { x: MX + 1.2, y: gy + 0.66, w: 6.4, h: 0.4, fontSize: 14, bold: true, color: C.teal, valign: 'middle' });
-  T(s, '단가·회전율·리드타임·품질 이슈를 종합해 등급을 매기고, 등급이 높을수록 더 높은 서비스 수준을 씁니다',
+  T(s, `규칙 기반 재고등급이 기존 등급 ${G.grade_match}/${G.total} 일치`, { x: MX + 1.2, y: gy + 0.66, w: 6.4, h: 0.4, fontSize: 14, bold: true, color: C.teal, valign: 'middle' });
+  T(s, '단가·회전율·리드타임·품절 이력을 점수로 합산해 등급을 매기고, 등급이 높을수록 더 높은 서비스 수준을 씁니다',
     { x: MX + 1.2, y: gy + 1.1, w: 6.4, h: gh - 1.2, fontSize: 11.5, color: C.text });
   const bx0 = MX + 8.0, bwid = CW - 8.3;
   T(s, `계산 재고등급 분포 (${G.total} SKU)`, { x: bx0, y: gy + 0.3, w: bwid, h: 0.32, fontSize: 12.5, bold: true, color: C.navy, valign: 'middle' });
@@ -1214,7 +1214,7 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     [wBest ? '세 기준 중 가중평균 기준 오차율 최저' : `세 기준 중 ${BLABEL[BYWAPE[0]]} 오차율 최저`,
       [`${VAL} 공통 ${W0.n_demand} SKU`, BYWAPE.map((b) => `${BSHORT[b]} ${pct(M[b].wape)}`).join(' · ')]],
     [wapeDown ? 'AI 보정으로 검증 오차 감소' : 'AI 보정 후 검증 오차율', [`현업 w → 보정 w · 선택에 안 쓴 ${HOLD} (${NHOLD} SKU)`, `${pct(wsCur.wape)} → ${pct(wsNew.wape)}`]],
-    ['등급 규칙 일치', [`규칙 기반 재고등급이 기존 등급 ${D.grades.match}/${D.grades.total}과 같음`]],
+    ['등급 규칙 일치', [`규칙 기반 재고등급이 기존 등급 ${D.grades.grade_match}/${D.grades.total}과 같음`]],
   ];
   const ih = (h - 0.7) / can.length;
   can.forEach(([a, b], i) => {

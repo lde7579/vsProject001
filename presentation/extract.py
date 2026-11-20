@@ -91,11 +91,17 @@ def metrics(path: Path) -> dict:
 
 def grades(path: Path) -> dict:
     """재고등급 시트: 기존 등급과 일치한 수, 등급 분포, 회전율 빈 칸."""
-    rows = sheet_rows(path, '재고등급')
+    return grade_summary(sheet_rows(path, '재고등급'))
+
+
+def grade_summary(rows: list[dict]) -> dict:
+    """재고등급 시트 행 요약. match는 4항목(단가·회전율 등급, 종합, 재고등급) 판정 일치 수,
+    grade_match는 재고등급만 엑셀과 같은 수(발표의 '기존 등급 일치'는 이 값)."""
     blank = [r for r in rows if r['회전율'] is None]
     return {
         'total': len(rows),
         'match': sum(r['판정'] == '일치' for r in rows),
+        'grade_match': sum(r['재고등급'] is not None and r['재고등급'] == r['엑셀재고등급'] for r in rows),
         'verdicts': dict(Counter(r['판정'] for r in rows)),
         'dist': {g: sum(r['재고등급'] == g for r in rows) for g in 'ABC'},
         'not_computable': sum(1 for r in rows if (r['메모'] or '').startswith('등급산출불가')),

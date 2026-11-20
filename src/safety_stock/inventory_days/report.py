@@ -66,11 +66,11 @@ _GRADE_COLS = [
     ('엑셀단가등급', lambda r, g: r.excel_price_grade, None),
     ('회전율백분위', lambda r, g: g.turnover_rank, '0.000'), ('회전율등급', lambda r, g: g.turnover_grade, None),
     ('엑셀회전율등급', lambda r, g: r.excel_turnover_grade, None),
-    ('리드타임등급', lambda r, g: g.lt_grade, None), ('품질등급', lambda r, g: g.quality_grade, None),
+    ('리드타임등급', lambda r, g: g.lt_grade, None), ('품절이력등급', lambda r, g: g.quality_grade, None),
     ('단가점수', lambda r, g: g.scores[0] if g.scores else None, '0'),
     ('회전율점수', lambda r, g: g.scores[1] if g.scores else None, '0'),
     ('리드타임점수', lambda r, g: g.scores[2] if g.scores else None, '0'),
-    ('품질점수', lambda r, g: g.scores[3] if g.scores else None, '0'),
+    ('품절이력점수', lambda r, g: g.scores[3] if g.scores else None, '0'),
     ('종합', lambda r, g: g.total, '0'), ('엑셀종합', lambda r, g: r.excel_total, '0'),
     ('종합백분위', lambda r, g: g.total_rank, '0.000'), ('재고등급', lambda r, g: g.grade, None),
     ('엑셀재고등급', lambda r, g: r.grade, None), ('판정', lambda r, g: grade_verdict(r, g), None),
@@ -210,8 +210,8 @@ def run(base: Path, actual: Path, out: Path, settings: CalcSettings, validation_
         '실적기준 수요': '실적평균×보정계수',
         'FCST기준 수요': 'FCST평균×보정계수',
         '재고등급': '단가·회전율 PERCENTRANK.INC(소수 3자리 내림) ≥0.75 A, ≥0.26 B, 그 외 C(회전율 분모 0이면 C). '
-                '점수 단가 A5/B3/C1·회전율 A10/B5/C1·리드타임 A5/B3/C1·품질 A5/B3/C0, 종합 백분위로 같은 경계. '
-                '리드타임·품질 등급은 입력값. 계산 등급을 Z값에 사용',
+                '점수 단가 A5/B3/C1·회전율 A10/B5/C1·리드타임 A5/B3/C1·품절이력 A5/B3/C1, 종합 백분위로 같은 경계. '
+                '리드타임 등급(SAP I/F)·품절이력 등급(입력 엑셀 품질이슈 열)은 입력값. 계산 등급을 Z값에 사용',
         '안전재고': 'Z × σ × √(리드타임/7)',
         'ROP': 'LT평균수요 + 안전재고',
         '일수 계산': '적정재고일수·안전재고일수·현재고일수 = 값 ÷ (주수요/7)',

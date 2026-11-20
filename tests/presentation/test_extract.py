@@ -58,3 +58,14 @@ def test_case_dict_has_actual_and_fcst_basis():
     assert (c['act_u'], c['fc_u']) == (9.9, 7.7)
     assert (c['act_cover'], c['fc_cover']) == ('방어', '결품')
     assert (c['act_actual_days'], c['fc_actual_days']) == (12.5, 3.5)
+
+
+def test_grade_summary_counts_grade_match_separately():
+    from extract import grade_summary
+    base = {'회전율': 1.0, '회전율등급': 'A', '품목그룹': 'G', '메모': None}
+    rows = [dict(base, 판정='일치', 재고등급='A', 엑셀재고등급='A'),
+            dict(base, 판정='불일치', 재고등급='B', 엑셀재고등급='B'),   # 종합만 달라 판정은 불일치
+            dict(base, 판정='불일치', 재고등급='C', 엑셀재고등급='B'),
+            dict(base, 판정='비교불가', 재고등급=None, 엑셀재고등급=None)]
+    g = grade_summary(rows)
+    assert g['match'] == 1 and g['grade_match'] == 2 and g['total'] == 4

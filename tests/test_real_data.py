@@ -140,7 +140,12 @@ def real_grades():
 def test_grades_match_excel_all_rows(real_grades):
     rows, grades = real_grades
     assert len(rows) == 116
-    assert {grade_verdict(r, grades[r.sku]) for r in rows} == {'일치'}
+    # 재고등급은 116행 모두 엑셀과 같다
+    assert all(r.grade == grades[r.sku].grade for r in rows)
+    # 종합점수는 품절이력 C인 1행만 다르다: 기준 문서는 C=1점, 기존 엑셀은 C=0점을 썼다
+    off = [r for r in rows if grade_verdict(r, grades[r.sku]) != '일치']
+    assert len(off) == 1
+    assert off[0].quality_grade == 'C' and grades[off[0].sku].total == off[0].excel_total + 1
     assert sum(g.turnover is None for g in grades.values()) == 16
 
 
