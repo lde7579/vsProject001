@@ -142,8 +142,8 @@ powershell -File presentation/render.ps1
 
 ```
 node presentation/build_public.js     # presentation 폴더에서는 npm run build:public
-uv run python presentation/leak_check.py out/발표_적정재고일수_공개본.pptx
-powershell -ExecutionPolicy Bypass -File presentation/render.ps1 -Pptx out/발표_적정재고일수_공개본.pptx -OutDir out/render_public
+uv run python presentation/leak_check.py out/발표_적정재고일수_공개본_<YYMMDD_HH>.pptx   # 파일명 끝은 만든 시각(년월일_시)
+powershell -ExecutionPolicy Bypass -File presentation/render.ps1 -Pptx out/발표_적정재고일수_공개본_<YYMMDD_HH>.pptx -OutDir out/render_public
 ```
 
 - 비식별 규칙: 품목그룹은 그룹 A~G(가중평균 채점 SKU 수 내림차순)로 치환한다.
