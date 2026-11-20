@@ -882,11 +882,16 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   };
   // 그룹 A~G 중 채점 값이 있는 그룹만('미분류'는 groupsOrdered에서 이미 빠짐)
   const groups = groupsOrdered.filter((g) => BASIS3.some((b) => isNum(D.metrics[g][b].wape)));
-  const winners = groups.map((g) => rowBest(D.metrics[g]));
-  const kinds = [...new Set(winners.filter(Boolean))];
+  // 결론과 제목은 SKU가 충분한(MINSKU 이상) 그룹만으로 판단한다. 소표본 그룹은 표에만 두고 참고로 쓴다.
+  const big = groupsOrdered.filter((g) => D.metrics[g]['가중평균'].n_demand >= MINSKU && rowBest(D.metrics[g]));
+  const bigWin = big.map((g) => rowBest(D.metrics[g]));
+  const kinds = [...new Set(bigWin)];
+  const hasSmall = groups.some((g) => D.metrics[g]['가중평균'].n_demand < MINSKU);
   const title = kinds.length > 1
     ? '품목그룹마다 실제 출고에 가장 맞는 기준이 다릅니다'
-    : `모든 품목그룹에서 ${BLABEL[kinds[0]]}이 실제 출고에 가장 맞았습니다`;
+    : kinds.length === 1
+      ? `SKU가 충분한 그룹은 모두 ${BLABEL[kinds[0]]}이 실제 출고에 가장 맞았습니다`
+      : '품목그룹별 세 기준의 수요 오차율';
   const s = slide({
     title,
     sub: `그룹별 수요 오차율 · ${VAL}, 공통 ${M['가중평균'].n_demand} SKU · 행 안에서 오차가 작을수록 진한 청록 · ★ 행 최솟값`,
@@ -907,7 +912,7 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     const y = y0 + i * rs;
     const vals = BASIS3.map((b) => (r.m[b] && isNum(r.m[b].wape) ? r.m[b].wape : null));
     const ok = vals.filter((v) => v !== null);
-    const mn = Math.min(...ok), mx = Math.max(...ok);
+    const mn = ok.length ? Math.min(...ok) : 0, mx = ok.length ? Math.max(...ok) : 0;
     const win = rowBest(r.m);
     const n = r.m['가중평균'].n_demand;
     const small = !r.all && n < MINSKU;
@@ -928,17 +933,19 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   const ny = y0 + rowsDef.length * rs + 0.02;
   T(s, `* SKU ${MINSKU}개 미만 그룹: 품목이 적어 우연의 영향이 큽니다 · 색은 행 안에서만 비교 · SKU = 가중평균 기준 수요 채점 수 · 공통 합산은 그룹을 모두 합친 값`,
     { x: MX, y: ny, w: CW, h: 0.28, fontSize: 10, color: C.gray, valign: 'middle' });
-  // 결론 줄: 가중평균이 가장 맞은 그룹과 다른 기준이 더 맞은 그룹
-  const wGroups = groups.filter((g, i) => winners[i] === '가중평균');
-  const byOther = BASIS3.filter((b) => b !== '가중평균')
-    .map((b) => [b, groups.filter((g, i) => winners[i] === b)])
-    .filter(([, gs]) => gs.length);
-  const parts = [];
-  if (wGroups.length) parts.push(`가중평균 기준이 가장 맞은 그룹은 ${aliasLetters(wGroups)}입니다`);
-  if (byOther.length) parts.push(`${byOther.map(([b, gs]) => `${aliasLetters(gs)}는 ${BLABEL[b]}`).join(', ')}이 더 맞았습니다`);
-  const msg = byOther.length
-    ? `${parts.join('. ')}. 그룹마다 실적과 예측을 섞는 비율이 달라야 한다는 뜻입니다 → 그룹별로 가중치를 보정할 여지가 있습니다.`
-    : `${parts.join('. ')}. 현업 산정 가중치가 그룹마다 잘 맞습니다 → AI 보정으로 더 나아지는지 확인합니다.`;
+  // 결론 줄: SKU가 충분한 그룹의 승자만으로 조건부 작성
+  const SIDE = { 실적기준: '실적', FCST기준: '예측' };
+  let msg;
+  if (kinds.length > 1) {
+    msg = `SKU가 충분한 ${aliasLetters(big)}에서도 가장 맞는 기준이 다릅니다(${big.map((g, i) => `${ga(g).slice(-1)} ${BLABEL[bigWin[i]]}`).join(' · ')}) → 실적과 예측 중 어느 쪽에 무게를 둘지가 그룹마다 달라, 그룹별로 가중치를 보정할 여지가 있습니다.`;
+  } else if (kinds.length === 1 && kinds[0] === '가중평균') {
+    msg = `SKU가 충분한 ${aliasLetters(big)}는 모두 가중평균 기준이 가장 맞았습니다 → 현업 산정 가중치가 잘 맞습니다. AI 보정으로 더 나아지는지 확인합니다.`;
+  } else if (kinds.length === 1) {
+    msg = `SKU가 충분한 ${aliasLetters(big)}는 모두 ${BLABEL[kinds[0]]}이 가장 맞았습니다 → 현업 가중치보다 ${SIDE[kinds[0]]} 쪽에 무게를 더 둘 여지가 있습니다.`;
+  } else {
+    msg = `SKU ${MINSKU}개 이상인 그룹이 없어 그룹별 결론은 내리지 않습니다(표는 참고만).`;
+  }
+  if (kinds.length && hasSmall) msg += ' (* 소표본 그룹은 참고만)';
   box(s, [
     { text: '읽는 법  ', options: { bold: true, color: '8FC9C9' } },
     { text: msg, options: { color: C.white, breakLine: true } },
