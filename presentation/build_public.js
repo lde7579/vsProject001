@@ -783,6 +783,169 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   ], MX, 6.3, CW, 0.58, { fill: C.red, fontSize: 12, align: 'left', valign: 'middle', margin: 10, round: 0.06 });
 })();
 
+// ======================================================================= 9. 결과 2: 실제 출고 채점
+(function scoring() {
+  const ALL = ['기존수기', ...BASIS3];
+  const best = BYWAPE[0];
+  const title = best === '가중평균'
+    ? `가중평균 기준이 실제 출고에 가장 가깝습니다 (오차율 ${pct(M[best].wape)})`
+    : `실제 출고에 가장 가까운 기준은 ${BLABEL[best]}입니다 (오차율 ${pct(M[best].wape)})`;
+  // 방어율·재고일수 채점 SKU 수(네 기준이 같으면 한 값)
+  const NLT = [...new Set(ALL.map((b) => M[b].n_lt))].sort((a, b) => a - b);
+  const nlt = NLT.length === 1 ? `${NLT[0]}` : `${NLT[0]}~${NLT[NLT.length - 1]}`;
+  const s = slide({
+    title,
+    sub: `실제 출고로 채점 · ${VAL}(${VS.n}주) · 공통 ${M['가중평균'].n_demand} SKU (방어율·재고일수는 ${nlt} SKU) · 청록 = 지표별 가장 좋은 값`,
+    tagText: '결과 2', tagKind: 'dark',
+  });
+  const days = (v) => (isNum(v) ? `${f1(v)}일` : '–');
+  // best: 'min' 낮을수록, 'abs' 0에 가까울수록, 'max' 높을수록 좋음, null 은 우열 없이 참고
+  const rowsDef = [
+    { key: 'wape', name: '수요 오차율 (WAPE)', how: '낮을수록 좋음 · |예측 − 실제| 합 ÷ 실제 합', fmt: (v) => pct(v), best: 'min' },
+    { key: 'bias', name: '수요 편향', how: '0에 가까울수록 좋음 · + 많게, − 적게 잡음', fmt: (v) => spct(v), best: 'abs' },
+    { key: 'cover', name: '결품 방어율', how: '높을수록 좋음 · 리드타임 수요를 덮은 비율(대리 지표)', fmt: (v) => pct(v), best: 'max' },
+    { key: 'days_median', name: '실제 기준 재고일수 중앙값', how: '참고 · 길수록 재고를 많이 듦', fmt: days, best: null },
+  ];
+  const score = (r, v) => (r.best === 'min' ? v : r.best === 'abs' ? Math.abs(v) : -v);
+  const bestOf = (r) => {
+    if (!r.best) return null;
+    const c = ALL.filter((b) => isNum(M[b][r.key]));
+    return c.length ? c.reduce((a, b) => (score(r, M[b][r.key]) < score(r, M[a][r.key]) ? b : a)) : null;
+  };
+  const labW = 3.75, bw = (CW - labW) / ALL.length;
+  const bx = (j) => MX + labW + j * bw;
+  const y0 = 1.62, hh = 0.46, rh = 0.74;
+  const ry0 = y0 + hh + 0.06, tableH = rh * rowsDef.length;
+  // 가중평균 열 강조 띠
+  const mj = ALL.indexOf('가중평균');
+  R(s, bx(mj), y0, bw, hh + 0.06 + tableH, 'F1F8F8');
+  // 머리 줄
+  T(s, '지표', { x: MX + 0.1, y: y0, w: labW - 0.1, h: hh, fontSize: 12, bold: true, color: C.navy, valign: 'middle' });
+  ALL.forEach((b, j) => T(s, BLABEL[b], {
+    x: bx(j), y: y0, w: bw, h: hh, fontSize: 13.5, bold: true, align: 'center', valign: 'middle',
+    color: b === '가중평균' ? C.teal : b === '기존수기' ? C.slate : C.navy,
+  }));
+  line(s, MX, y0 + hh + 0.02, CW, 0, C.navy, { width: 1.25 });
+  rowsDef.forEach((r, i) => {
+    const ry = ry0 + i * rh, win = bestOf(r);
+    if (i) line(s, MX, ry, CW, 0, C.line, { width: 0.75 });
+    T(s, [
+      { text: r.name, options: { fontSize: 14, bold: true, color: C.navy, breakLine: true } },
+      { text: r.how, options: { fontSize: 10, color: C.gray } },
+    ], { x: MX + 0.1, y: ry, w: labW - 0.2, h: rh, valign: 'middle', paraSpaceAfter: 2 });
+    ALL.forEach((b, j) => {
+      const v = M[b][r.key];
+      if (b === win) {
+        box(s, r.fmt(v), bx(j) + 0.22, ry + 0.11, bw - 0.44, rh - 0.22, { fill: C.teal, color: C.white, bold: true, fontSize: 19, round: 0.08, margin: 0 });
+      } else if (!isNum(v)) {
+        T(s, [
+          { text: '–', options: { fontSize: 17, color: C.mute, breakLine: true } },
+          { text: '자체 수요예측 없음', options: { fontSize: 9.5, color: C.gray } },
+        ], { x: bx(j), y: ry, w: bw, h: rh, align: 'center', valign: 'middle' });
+      } else {
+        T(s, r.fmt(v), { x: bx(j), y: ry, w: bw, h: rh, fontSize: 18, bold: b === '가중평균', color: b === '가중평균' ? C.teal : C.text, align: 'center', valign: 'middle' });
+      }
+    });
+  });
+  line(s, MX, ry0 + tableH, CW, 0, C.line, { width: 0.75 });
+  T(s, '기존 수기는 자체 수요예측이 없어(수요는 가중평균 기준과 같고 안전재고일수만 고정 값) 오차율·편향을 매기지 않습니다 · 방어 = 목표재고가 실제 리드타임 수요를 덮음',
+    { x: MX, y: ry0 + tableH + 0.04, w: CW, h: 0.28, fontSize: 10, color: C.gray, valign: 'middle' });
+  // 해석(데이터로 조건부 작성)
+  const W0 = M['가중평균'], OLD = M['기존수기'];
+  const notes = [];
+  const others = BASIS3.filter((b) => b !== best);
+  const biasBest = bestOf(rowsDef[1]);
+  notes.push(`수요 오차율은 ${BLABEL[best]}이 ${pct(M[best].wape)}로 ${others.map((b) => `${BLABEL[b]} ${pct(M[b].wape)}`).join('·')}보다 낮${best === '가중평균' && biasBest === '가중평균' ? `고, 편향도 ${spct(W0.bias)}로 0에 가장 가깝습니다.` : '습니다.'}`);
+  const coverTop = bestOf(rowsDef[2]);
+  const daysTop = ALL.filter((b) => isNum(M[b].days_median)).reduce((a, b) => (M[b].days_median > M[a].days_median ? b : a));
+  if (coverTop === '기존수기' && daysTop === '기존수기') {
+    notes.push(`기존 수기는 방어율이 ${pct(OLD.cover)}로 가장 높지만 재고일수 중앙값도 ${days(OLD.days_median)}로 가장 깁니다 → 더 많은 재고로 막은 것입니다.`);
+  }
+  const higher = ALL.filter((b) => b !== '가중평균' && isNum(M[b].cover) && M[b].cover > W0.cover);
+  if (higher.length) {
+    const dd = (Math.round(OLD.days_median * 10) - Math.round(W0.days_median * 10)) / 10;
+    notes.push(`가중평균 기준의 방어율 ${pct(W0.cover)}는 ${higher.map((b) => `${BLABEL[b]}(${pct(M[b].cover)})`).join('·')}보다 낮습니다${dd > 0 ? `. 대신 재고일수 중앙값은 기존 수기보다 ${dd.toFixed(1)}일 짧습니다` : ''} → 서비스 수준(Z) 조정 과제`);
+  }
+  notes.push('다음: 품목그룹별로 나눠 보면, 가장 맞는 기준이 그룹마다 같을까?');
+  const by = ry0 + tableH + 0.42, bh = 6.9 - by;
+  RR(s, MX, by, CW, bh, C.navy);
+  T(s, notes.map((t, i) => ({ text: t, options: { bullet: { indent: 12 }, breakLine: i < notes.length - 1, color: i === notes.length - 1 ? C.sky : C.white, fontSize: i === notes.length - 1 ? 11 : 12.5 } })),
+    { x: MX + 0.25, y: by + 0.08, w: CW - 0.5, h: bh - 0.16, valign: 'middle', paraSpaceAfter: 3 });
+})();
+
+// ======================================================================= 10. 결과 3: 그룹별 비교
+(function groupHeat() {
+  // 그룹마다 오차율이 가장 낮은 기준(값이 없으면 null)
+  const rowBest = (m) => {
+    const c = BASIS3.filter((b) => m[b] && isNum(m[b].wape));
+    return c.length ? c.reduce((a, b) => (m[b].wape < m[a].wape ? b : a)) : null;
+  };
+  // 그룹 A~G 중 채점 값이 있는 그룹만('미분류'는 groupsOrdered에서 이미 빠짐)
+  const groups = groupsOrdered.filter((g) => BASIS3.some((b) => isNum(D.metrics[g][b].wape)));
+  const winners = groups.map((g) => rowBest(D.metrics[g]));
+  const kinds = [...new Set(winners.filter(Boolean))];
+  const title = kinds.length > 1
+    ? '품목그룹마다 실제 출고에 가장 맞는 기준이 다릅니다'
+    : `모든 품목그룹에서 ${BLABEL[kinds[0]]}이 실제 출고에 가장 맞았습니다`;
+  const s = slide({
+    title,
+    sub: `그룹별 수요 오차율 · ${VAL}, 공통 ${M['가중평균'].n_demand} SKU · 행 안에서 오차가 작을수록 진한 청록 · ★ 행 최솟값`,
+    tagText: '결과 3', tagKind: 'dark',
+  });
+  const rowsDef = [{ label: '공통 합산', m: M, all: true }, ...groups.map((g) => ({ label: ga(g), m: D.metrics[g], all: false }))];
+  const lx = MX, nx = MX + 1.45, x0 = MX + 2.35, rcw = 2.3;
+  const cw = (CW - 2.35 - rcw - 0.15) / BASIS3.length;
+  const rx = x0 + cw * BASIS3.length + 0.15;
+  const hy = 1.66;
+  T(s, '그룹', { x: lx, y: hy, w: 1.4, h: 0.34, fontSize: 12, bold: true, color: C.navy, valign: 'middle' });
+  T(s, 'SKU', { x: nx, y: hy, w: 0.8, h: 0.34, fontSize: 12, bold: true, color: C.navy, align: 'center', valign: 'middle' });
+  BASIS3.forEach((b, j) => T(s, BLABEL[b], { x: x0 + j * cw, y: hy, w: cw, h: 0.34, fontSize: 12.5, bold: true, color: b === '가중평균' ? C.teal : C.navy, align: 'center', valign: 'middle' }));
+  T(s, '가장 맞는 기준', { x: rx, y: hy, w: rcw, h: 0.34, fontSize: 12, bold: true, color: C.navy, align: 'center', valign: 'middle' });
+  const PAL = [[C.teal, C.white], ['5FA8A8', C.white], ['A8D3D3', C.navy], [C.tealL, C.navy], ['F3F5F7', C.slate]];
+  const rh = 0.4, rs = 0.45, y0 = 2.06;
+  rowsDef.forEach((r, i) => {
+    const y = y0 + i * rs;
+    const vals = BASIS3.map((b) => (r.m[b] && isNum(r.m[b].wape) ? r.m[b].wape : null));
+    const ok = vals.filter((v) => v !== null);
+    const mn = Math.min(...ok), mx = Math.max(...ok);
+    const win = rowBest(r.m);
+    const n = r.m['가중평균'].n_demand;
+    const small = !r.all && n < MINSKU;
+    if (r.all) R(s, lx, y - 0.02, CW, rh + 0.04, 'EEF1F4');
+    T(s, small ? `${r.label} *` : r.label, { x: lx + 0.05, y, w: 1.4, h: rh, fontSize: 12.5, bold: true, color: small ? C.gray : C.navy, valign: 'middle' });
+    T(s, String(n), { x: nx, y, w: 0.8, h: rh, fontSize: 12, color: C.text, align: 'center', valign: 'middle' });
+    vals.forEach((v, j) => {
+      const x = x0 + j * cw;
+      if (v === null) { box(s, '–', x + 0.03, y, cw - 0.06, rh, { fill: 'F7F8FA', color: C.mute, fontSize: 11, margin: 0 }); return; }
+      const t = mx > mn ? (v - mn) / (mx - mn) : 0;
+      const lv = t <= 0.001 ? 0 : t < 0.25 ? 1 : t < 0.5 ? 2 : t < 0.75 ? 3 : 4;
+      const isW = BASIS3[j] === win;
+      box(s, `${isW ? '★ ' : ''}${pct(v, v < 1 ? 1 : 0)}`, x + 0.03, y, cw - 0.06, rh, {
+        fill: PAL[lv][0], color: PAL[lv][1], fontSize: 12, bold: isW, margin: 0 });
+    });
+    T(s, win ? BLABEL[win] : '–', { x: rx, y, w: rcw, h: rh, fontSize: 12.5, bold: true, color: win === '가중평균' ? C.teal : C.navy, align: 'center', valign: 'middle' });
+  });
+  const ny = y0 + rowsDef.length * rs + 0.02;
+  T(s, `* SKU ${MINSKU}개 미만 그룹: 품목이 적어 우연의 영향이 큽니다 · 색은 행 안에서만 비교 · SKU = 가중평균 기준 수요 채점 수 · 공통 합산은 그룹을 모두 합친 값`,
+    { x: MX, y: ny, w: CW, h: 0.28, fontSize: 10, color: C.gray, valign: 'middle' });
+  // 결론 줄: 가중평균이 가장 맞은 그룹과 다른 기준이 더 맞은 그룹
+  const wGroups = groups.filter((g, i) => winners[i] === '가중평균');
+  const byOther = BASIS3.filter((b) => b !== '가중평균')
+    .map((b) => [b, groups.filter((g, i) => winners[i] === b)])
+    .filter(([, gs]) => gs.length);
+  const parts = [];
+  if (wGroups.length) parts.push(`가중평균 기준이 가장 맞은 그룹은 ${aliasLetters(wGroups)}입니다`);
+  if (byOther.length) parts.push(`${byOther.map(([b, gs]) => `${aliasLetters(gs)}는 ${BLABEL[b]}`).join(', ')}이 더 맞았습니다`);
+  const msg = byOther.length
+    ? `${parts.join('. ')}. 그룹마다 실적과 예측을 섞는 비율이 달라야 한다는 뜻입니다 → 그룹별로 가중치를 보정할 여지가 있습니다.`
+    : `${parts.join('. ')}. 현업 산정 가중치가 그룹마다 잘 맞습니다 → AI 보정으로 더 나아지는지 확인합니다.`;
+  box(s, [
+    { text: '읽는 법  ', options: { bold: true, color: '8FC9C9' } },
+    { text: msg, options: { color: C.white, breakLine: true } },
+    { text: '다음: AI 보정 — 현업 가중치를 출발점으로 그룹별 w를 데이터로 확인하고 보정합니다', options: { color: C.sky, fontSize: 11, bold: false } },
+  ], MX, ny + 0.36, CW, 6.9 - (ny + 0.36), { fill: C.navy, fontSize: 12.5, bold: true, align: 'left', valign: 'middle', margin: 12, round: 0.06 });
+})();
+
 // ======================================================================= 7. AI 기법
 (function aiTech() {
   const s = slide({
