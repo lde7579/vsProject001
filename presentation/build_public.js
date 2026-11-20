@@ -121,6 +121,7 @@ const WRANGE = D.weights.length
   ? `${wfmt(Math.min(...D.weights.map((w) => w.wh)))}~${wfmt(Math.max(...D.weights.map((w) => w.wh)))}` : '–';
 const choicesSorted = [...WS.choices].sort((a, b) => byAlias(a.group, b.group));
 const NHOLD = wsNew.n_demand; // 검증 구간 수요 채점 SKU 수
+const wapeDown = wsNew.wape < wsCur.wape; // 검증 구간 오차율이 실제로 줄었을 때만 '개선/감소'라고 쓴다
 const coverDown = isNum(wsNew.cover) && isNum(wsCur.cover) && wsNew.cover < wsCur.cover;
 const maxGroupN = Math.max(...groupsOrdered.map((g) => D.metrics[g]['가중평균'].n_demand));
 const minGroupN = Math.min(...groupsOrdered.map((g) => D.metrics[g]['가중평균'].n_demand));
@@ -1085,20 +1086,23 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   T(s, `* SKU ${MINSKU}개 미만 그룹은 그룹 안의 최솟값 대신 전체 합산 최적 w(${wfmt(pooledBest)})를 씁니다 (과적합 방지) · 색은 행 안에서만 비교 · SKU = 선택 구간 채점 수`,
     { x: MX, y: ny, w: CW, h: 0.3, fontSize: 10.5, color: C.gray, valign: 'middle' });
   // 읽는 법: SKU가 충분한 그룹마다 현업 w와 선택 w의 선택 구간 오차율 차이를 data로 계산해 적는다
-  // 차이가 NEAR(1.0%p) 이하이면 '현업 w가 최적 근처'로 본다. 차이는 화면에 보이는 반올림 값끼리 뺀다.
-  const NEAR = 1.0;
+  // NEAR_PP: '현업 w가 최적 근처'로 볼 선택 구간 오차율 절대 차이(%p) 기준. 화면에도 기준을 밝힌다.
+  // 근거: 통계 검정이 아닌 발표용 판단 기준이다. 선택 구간 오차율(WAPE)의 절대 차이가 1%p 이하이면
+  //       그룹 오차율 수준(이번 데이터 12~68%) 대비 작은 차이라 현업 w를 '최적 근처'로 본다.
+  // 차이는 화면에 보이는 반올림 값끼리 뺀다.
+  const NEAR_PP = 1.0;
   const gaps = choicesSorted.filter((c) => c.method === '그룹최적').map((c) => {
     const a = cand(c.group, c.current), z = cand(c.group, c.chosen);
     const wa = a && isNum(a.wape) ? a.wape : c.wape_current, wz = z && isNum(z.wape) ? z.wape : c.wape_chosen;
     const d = isNum(wa) && isNum(wz) ? (Math.round(wa * 1000) - Math.round(wz * 1000)) / 10 : null;
     return { g: c.group, d };
   }).filter((r) => isNum(r.d));
-  const near = gaps.filter((r) => r.d <= NEAR), far = gaps.filter((r) => r.d > NEAR);
+  const near = gaps.filter((r) => r.d <= NEAR_PP), far = gaps.filter((r) => r.d > NEAR_PP);
   const gtxt = (arr) => arr.map((r) => `${ga(r.g)} ${r.d.toFixed(1)}%p`).join(' · ');
   let msg;
-  if (near.length && far.length) msg = `SKU ${MINSKU}개 이상 그룹 중 ${gtxt(near)} 차이로 현업 w가 이미 최적 근처였고, ${gtxt(far)} 차이로 보정 여지가 컸습니다.`;
-  else if (near.length) msg = `SKU ${MINSKU}개 이상 그룹은 ${gtxt(near)} 차이로 모두 현업 w가 최적 근처였습니다.`;
-  else if (far.length) msg = `SKU ${MINSKU}개 이상 그룹은 ${gtxt(far)} 차이로 보정 여지가 있었습니다.`;
+  if (near.length && far.length) msg = `SKU ${MINSKU}개 이상 그룹 중 ${gtxt(near)} 차이로 현업 w가 이미 최적 근처(차이 ${NEAR_PP.toFixed(1)}%p 이하)였고, ${gtxt(far)} 차이로 보정 여지가 컸습니다.`;
+  else if (near.length) msg = `SKU ${MINSKU}개 이상 그룹은 ${gtxt(near)} 차이로 모두 현업 w가 최적 근처(차이 ${NEAR_PP.toFixed(1)}%p 이하)였습니다.`;
+  else if (far.length) msg = `SKU ${MINSKU}개 이상 그룹은 ${gtxt(far)} 차이로 보정 여지가 있었습니다(최적 근처 기준: 차이 ${NEAR_PP.toFixed(1)}%p 이하).`;
   else msg = '그룹마다 오차가 가장 낮은 w가 다릅니다.';
   msg += ` 단, ${SS_.n}주로 고른 값이라 다음 장의 검증 구간에서 다시 확인합니다.`;
   box(s, [
@@ -1185,7 +1189,7 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   const W0 = M['가중평균'], OLDM = M['기존수기'];
   const wBest = BYWAPE[0] === '가중평균';
   const s = slide({
-    title: '품목별 값과 오차율 개선은 확인했지만, 유의성 검정은 아직 없습니다',
+    title: wapeDown ? '품목별 값과 오차율 개선은 확인했지만, 유의성 검정은 아직 없습니다' : '품목별 값은 확인했지만, 유의성 검정은 아직 없습니다',
     sub: '주장은 범위(기간·SKU)를 밝힌 수치로만 하고, 나빠진 지표도 함께 적었습니다',
     tagText: '해석과 한계', tagKind: 'light',
   });
@@ -1197,7 +1201,7 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     ['품목별 일별 안전재고 자동 산출', `현업 수기 ${OLD.distinct}종 → 가중평균 기준 ${WB.distinct}개 값 · 중앙값 ${f1(OLD.median)} → ${f1(WB.median)}일 (${SB.n} SKU)`],
     [wBest ? '세 기준 중 가중평균 기준 오차율 최저' : `세 기준 중 ${BLABEL[BYWAPE[0]]} 오차율 최저`,
       `${VAL} 공통 ${W0.n_demand} SKU: ${BYWAPE.map((b) => `${BSHORT[b]} ${pct(M[b].wape)}`).join(' · ')}`],
-    ['AI 보정으로 검증 오차 감소', `현업 w → 보정 w, 선택에 안 쓴 ${HOLD}: ${pct(wsCur.wape)} → ${pct(wsNew.wape)} (${NHOLD} SKU)`],
+    [wapeDown ? 'AI 보정으로 검증 오차 감소' : 'AI 보정 후 검증 오차율', `현업 w → 보정 w, 선택에 안 쓴 ${HOLD}: ${pct(wsCur.wape)} → ${pct(wsNew.wape)} (${NHOLD} SKU)`],
     ['등급 규칙 일치', `규칙 기반 재고등급이 기존 등급 ${D.grades.match}/${D.grades.total}과 같음`],
   ];
   const ih = (h - 0.7) / can.length;
@@ -1213,7 +1217,7 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
   const higherOld = isNum(OLDM.cover) && OLDM.cover > W0.cover;
   const lim = [
     ['chart', '같은 기간 채점 · 유의성 검정 없음', `세 기준은 같은 ${VAL}에서 채점했고, AI 보정은 검증 ${NHOLD} SKU(그룹 ${minGroupN}~${maxGroupN}개)입니다. 차이가 우연인지 검정하지 않았습니다.`],
-    ['target', '결품 방어는 대리 지표', `실제 결품 기록이 아닙니다. 가중평균 기준 방어율 ${pct(W0.cover)}${higherOld || lowCover.length ? `는 ${[...(higherOld ? ['기존 수기'] : []), ...lowCover.map((b) => BLABEL[b])].join('·')}보다 낮고` : ''}, AI 보정 후 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}입니다.`],
+    ['target', '결품 방어는 대리 지표', `실제 결품 기록이 아닙니다. 가중평균 기준 방어율 ${pct(W0.cover)}(${W0.n_lt} SKU)${higherOld || lowCover.length ? `는 ${[...(higherOld ? ['기존 수기'] : []), ...lowCover.map((b) => BLABEL[b])].join('·')}보다 낮고` : ''}, AI 보정 후 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}입니다.`],
     ['db', '테스트 데이터셋 결과', '비식별 처리한 테스트 데이터셋의 결과입니다. 다른 데이터에서도 같다고 보장하지 않습니다.'],
     ['calendar', `선택 구간 ${SS_.n}주`, `W${SS_.b}에 다시 고르는 상황을 흉내 낸 것이라 실제 운영보다 낙관적일 수 있습니다.`],
     ['doc', '예측 스냅샷 1개', '한 시점의 예측만 썼습니다. 주마다 쌓아 같은 비교를 반복해야 합니다.'],
@@ -1243,9 +1247,9 @@ const cov = (v) => (v === '결품' ? '미방어' : v);
     [`목표: 현업 수기 ${OLD.distinct}종 → 품목별 자동 산출`,
       `현업이 품목마다 계산할 수 없어 ${oldLevels.join('·')}일에 몰려 있던 일별 안전재고를, 같은 공식으로 품목마다 산출했습니다(가중평균 기준 ${WB.distinct}개 값, 중앙값 ${f1(OLD.median)} → ${f1(WB.median)}일).`],
     [best === '가중평균' ? '세 기준 비교: 가중평균 기준 오차율 최저' : `세 기준 비교: ${BLABEL[best]} 오차율 최저`,
-      `${VAL} 공통 ${W0.n_demand} SKU 실제 출고 오차율 ${BYWAPE.map((b) => `${BSHORT[b]} ${pct(M[b].wape)}`).join(' · ')}.${coverLow ? ` 가중평균 기준의 결품 방어율 ${pct(W0.cover)}는 기존 수기 ${pct(M['기존수기'].cover)}보다 낮아 과제로 남았습니다.` : ''}`],
+      `${VAL} 공통 ${W0.n_demand} SKU 실제 출고 오차율 ${BYWAPE.map((b) => `${BSHORT[b]} ${pct(M[b].wape)}`).join(' · ')}.${coverLow ? ` 가중평균 기준의 결품 방어율 ${pct(W0.cover)}(${W0.n_lt} SKU)는 기존 수기 ${pct(M['기존수기'].cover)}보다 낮아 과제로 남았습니다.` : ''}`],
     ['AI 보정: 현업 w에서 출발해 데이터로 보정',
-      `그리드 탐색(${man(SPACE)} 조합을 ${CANDS.length * NG}번 계산)과 시계열 분할 검증으로 고른 w가 검증 구간 ${HOLD}에서 ${pct(wsCur.wape)} → ${pct(wsNew.wape)}(${pp(wsCur.wape, wsNew.wape)} 개선).${coverDown ? ` 방어율 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}는 함께 볼 과제입니다.` : ''}`],
+      `그리드 탐색(${man(SPACE)} 조합을 ${CANDS.length * NG}번 계산)과 시계열 분할 검증으로 고른 w가 검증 구간 ${HOLD}에서 ${pct(wsCur.wape)} → ${pct(wsNew.wape)}(${pp(Math.max(wsCur.wape, wsNew.wape), Math.min(wsCur.wape, wsNew.wape))} ${wapeDown ? '개선' : '악화'}).${coverDown ? ` 방어율 ${pct(wsCur.cover)} → ${pct(wsNew.cover)}는 함께 볼 과제입니다.` : ''}`],
   ];
   items.forEach(([a, b], i) => {
     const y = 1.75 + i * 1.3;
